@@ -398,7 +398,7 @@ async function submitToAppsScript(flow, data) {
 
 function buildQuoteMessage(flow, data, result) {
   if (flow === 'general') {
-    const lines = ['✅ 報價完成', `品牌:${data.brand}`, `名稱:${data.name}`];
+    const lines = ['✅ 報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
       lines.push(`原價:${data.originalPrice}`);
     }
@@ -412,7 +412,7 @@ function buildQuoteMessage(flow, data, result) {
   }
 
   if (flow === 'peerTwd') {
-    const lines = ['✅ 同行報價完成(台幣)', `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`, `售價:${data.price}`];
+    const lines = ['✅ 同行報價完成(台幣)', `編號:${result.productId}`, `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`, `售價:${data.price}`];
     if (data.weight) {
       lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
     } else {
@@ -426,6 +426,7 @@ function buildQuoteMessage(flow, data, result) {
 
   const lines = [
     '✅ 同行報價完成(韓幣)',
+    `編號:${result.productId}`,
     `同行:${data.peerName}`,
     `品牌:${data.brand}`,
     `名稱:${data.name}`,
