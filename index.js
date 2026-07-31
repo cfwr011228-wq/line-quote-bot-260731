@@ -1,8 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
-const { google } = require('googleapis');
-const stream = require('stream');
 
 const config = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -12,20 +10,11 @@ const config = {
 const client = new line.Client(config);
 const app = express();
 
-// ---------- Google 驗證 ----------
-const auth = new google.auth.GoogleAuth({
-  keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, // service-account.json 路徑
-  scopes: [
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive',
-  ],
-});
-const sheets = google.sheets({ version: 'v4', auth });
-const drive = google.drive({ version: 'v3', auth });
-
-const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
-const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID;
-const SHEET_NAME = process.env.SHEET_NAME || '報價紀錄';
+// ---------- Google Apps Script Web App(取代服務帳戶) ----------
+// 這個網址是你部署 Apps Script 後拿到的 /exec 網址
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
+// 一組你自己設定的密碼,避免別人亂打你的 Apps Script 網址寫入亂資料
+const APPS_SCRIPT_SECRET = process.env.APPS_SCRIPT_SECRET;
 
 // 固定運費(每公斤)與關稅(每公斤),屬於後台設定值,不用每次問使用者
 // 如果你的關稅其實是「稅率%」而不是每公斤金額,改法在下方 calculateQuote() 註解處
@@ -112,8 +101,8 @@ async function extractStepValue(event, step) {
       throw new Error('請傳送圖片,不是文字喔');
     }
     const messageId = event.message.id;
-    const driveUrl = await downloadAndUploadImage(messageId);
-    return driveUrl;
+    const imageBase64 = await getLineImageBase64(messageId);
+    return imageBase64;
   }
 
   const text = event.message.type === 'text' ? event.message.text.trim() : null;
@@ -127,32 +116,14 @@ async function extractStepValue(event, step) {
   return text; // brand, name 直接存文字
 }
 
-// 下載 LINE 圖片,上傳到 Google Drive,回傳可供 =IMAGE() 公式使用的網址
-async function downloadAndUploadImage(messageId) {
+// 下載 LINE 圖片,轉成 base64 字串,稍後整包交給 Apps Script 處理儲存
+async function getLineImageBase64(messageId) {
   const contentStream = await client.getMessageContent(messageId);
-  const bufferStream = new stream.PassThrough();
-  contentStream.pipe(bufferStream);
-
-  const fileMetadata = {
-    name: `product-${messageId}.jpg`,
-    parents: DRIVE_FOLDER_ID ? [DRIVE_FOLDER_ID] : undefined,
-  };
-
-  const file = await drive.files.create({
-    resource: fileMetadata,
-    media: { mimeType: 'image/jpeg', body: bufferStream },
-    fields: 'id',
-  });
-
-  const fileId = file.data.id;
-
-  // 設為「知道連結的任何人皆可檢視」,=IMAGE() 公式才能載入圖片
-  await drive.permissions.create({
-    fileId,
-    requestBody: { role: 'reader', type: 'anyone' },
-  });
-
-  return `https://drive.google.com/uc?export=view&id=${fileId}`;
+  const chunks = [];
+  for await (const chunk of contentStream) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('base64');
 }
 
 function calculateQuote(data) {
@@ -176,27 +147,35 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+// 把整包資料(含圖片 base64)POST 給 Apps Script,由它寫入試算表並嵌入圖片
 async function writeToSheet(data, quote) {
-  const row = [
-    new Date().toLocaleString('zh-TW'),
-    data.brand,
-    data.name,
-    `=IMAGE("${data.image}")`,
-    data.price,
-    data.rate,
-    data.weight,
-    SHIPPING_RATE_PER_KG,
-    TARIFF_RATE_PER_KG,
-    quote.profit,
-    quote.total,
-  ];
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${SHEET_NAME}!A:K`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [row] },
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      secret: APPS_SCRIPT_SECRET,
+      brand: data.brand,
+      name: data.name,
+      price: data.price,
+      rate: data.rate,
+      weight: data.weight,
+      shippingAndTariff: quote.shippingAndTariff,
+      profit: quote.profit,
+      total: quote.total,
+      imageBase64: data.image,
+    }),
   });
+
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+  }
+
+  if (!json.success) {
+    throw new Error(json.error || '寫入試算表失敗');
+  }
 }
 
 function buildQuoteMessage(data, quote) {
