@@ -1,0 +1,15 @@
+{
+  "name": "line-quote-bot",
+  "version": "1.0.0",
+  "description": "LINE 聊天機器人報價系統:收集商品圖片/品牌/名稱/售價/匯率/重量/利潤,計算報價後寫入 Google 試算表並回覆使用者",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@line/bot-sdk": "^9.4.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^140.0.1"
+  }
+}
