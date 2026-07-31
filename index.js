@@ -38,10 +38,6 @@ function roundTo10(n) {
   return Math.round(n / 10) * 10;
 }
 
-function priceParser(text) {
-  return roundTo10(numberParser(text));
-}
-
 // items: 陣列,每個可以是字串(label=text)或 {label, text}
 function quickReplyOf(items) {
   return {
@@ -74,6 +70,113 @@ async function fetchFxRate(code) {
   return raw >= 10 ? Math.round(raw) : Math.round(raw * 100) / 100;
 }
 
+// ------------------- 整段範本欄位定義 -------------------
+// type: 'text' | 'number' | 'price'(number 再四捨五入到十位數)
+// required: 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
+
+const GENERAL_FIELDS = [
+  { label: '商品品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '原價', key: 'originalPrice', type: 'number' },
+  { label: '售價', key: 'price', type: 'price', required: true },
+  { label: '重量(kg)', key: 'weight', type: 'number', required: true },
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+const PEER_TWD_FIELDS = [
+  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
+  { label: '商品品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '售價', key: 'price', type: 'price', required: true },
+  { label: '重量(kg)', key: 'weight', type: 'number' }, // 留空代表已含運費
+  { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+const PEER_KRW_FIELDS = [
+  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
+  { label: '商品品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '售價', key: 'price', type: 'price', required: true },
+  { label: '買手費(%)', key: 'buyerFeePercent', type: 'number', required: true },
+  { label: '重量(kg)', key: 'weight', type: 'number', required: true },
+  { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+function buildTemplateText(instruction, fields) {
+  const lines = fields.map((f) => `${f.label}：${f.default !== undefined ? f.default : ''}`);
+  return `${instruction}\n\n${lines.join('\n')}`;
+}
+
+const GENERAL_TEMPLATE_PROMPT = buildTemplateText(
+  '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(原價不需要可以留空)',
+  GENERAL_FIELDS
+);
+const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
+  '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(重量若不填,代表售價已含運費)',
+  PEER_TWD_FIELDS
+);
+const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
+  '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可',
+  PEER_KRW_FIELDS
+);
+
+// 解析使用者傳回的整段文字,依照每一行「標籤：值」對應欄位
+function parseTemplate(text, fields) {
+  const map = {};
+  text.split('\n').forEach((line) => {
+    const idx = line.search(/[:：]/);
+    if (idx === -1) return;
+    const label = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim();
+    map[label] = value;
+  });
+
+  const data = {};
+  const missing = [];
+
+  fields.forEach((f) => {
+    const raw = map[f.label] || '';
+
+    if (f.type === 'text') {
+      if (!raw) {
+        if (f.required) missing.push(f.label);
+        data[f.key] = null;
+      } else {
+        data[f.key] = raw;
+      }
+      return;
+    }
+
+    // number / price
+    if (!raw) {
+      if (f.default !== undefined) {
+        data[f.key] = f.default;
+      } else if (f.required) {
+        missing.push(f.label);
+      } else {
+        data[f.key] = null;
+      }
+      return;
+    }
+
+    const m = raw.match(/-?\d+(\.\d+)?/);
+    if (!m) {
+      missing.push(`${f.label}(請輸入數字)`);
+      return;
+    }
+    let num = Number(m[0]);
+    if (f.type === 'price') num = roundTo10(num);
+    data[f.key] = num;
+  });
+
+  if (missing.length > 0) {
+    throw new Error(`還缺少或格式不正確:${missing.join('、')},請重新整段貼上`);
+  }
+  return data;
+}
+
 // ------------------- 流程定義 -------------------
 
 const GENERAL_STEPS = [
@@ -94,22 +197,7 @@ const GENERAL_STEPS = [
       return `今日台幣:${meta.country} = 1:${rate}`;
     },
   },
-  { key: 'brand', prompt: '請輸入商品品牌', parse: (t) => t },
-  { key: 'name', prompt: '請輸入商品名稱', parse: (t) => t },
-  {
-    key: 'originalPrice',
-    prompt: '請輸入原價(不需要請按「跳過」)',
-    quickReplyItems: ['跳過'],
-    parse: (text) => (text === '跳過' ? null : numberParser(text)),
-  },
-  { key: 'price', prompt: '請輸入售價(原幣金額)', parse: priceParser },
-  { key: 'weight', prompt: '請輸入重量(kg)', parse: numberParser },
-  {
-    key: 'profit',
-    prompt: '請輸入利潤(預設200,可直接點下方按鈕)',
-    quickReplyItems: [{ label: '使用預設200', text: '200' }],
-    parse: numberParser,
-  },
+  { key: 'generalFields', type: 'template', fields: GENERAL_FIELDS, prompt: GENERAL_TEMPLATE_PROMPT },
   {
     key: 'category',
     quickReplyItems: CATEGORIES,
@@ -123,58 +211,12 @@ const GENERAL_STEPS = [
 
 const PEER_TWD_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'peerName', prompt: '請輸入同行姓名', parse: (t) => t },
-  { key: 'brand', prompt: '請輸入商品品牌', parse: (t) => t },
-  { key: 'name', prompt: '請輸入商品名稱', parse: (t) => t },
-  { key: 'price', prompt: '請輸入售價', parse: priceParser },
-  {
-    key: 'weight',
-    prompt: '請輸入重量(kg)(售價已含運費請按「不填」)',
-    quickReplyItems: [{ label: '不填(已含運費)', text: '不填' }],
-    parse: (text) => (text === '不填' ? null : numberParser(text)),
-  },
-  {
-    key: 'shippingRate',
-    prompt: '請輸入每公斤運費(預設200,可直接點下方按鈕)',
-    quickReplyItems: [{ label: '使用預設200', text: '200' }],
-    parse: numberParser,
-    condition: (data) => data.weight !== null && data.weight !== undefined,
-    defaultValue: 0,
-  },
-  {
-    key: 'profit',
-    prompt: '請輸入利潤(預設200,可直接點下方按鈕)',
-    quickReplyItems: [{ label: '使用預設200', text: '200' }],
-    parse: numberParser,
-  },
+  { key: 'peerTwdFields', type: 'template', fields: PEER_TWD_FIELDS, prompt: PEER_TWD_TEMPLATE_PROMPT },
 ];
 
 const PEER_KRW_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'peerName', prompt: '請輸入同行姓名', parse: (t) => t },
-  { key: 'brand', prompt: '請輸入商品品牌', parse: (t) => t },
-  { key: 'name', prompt: '請輸入商品名稱', parse: (t) => t },
-  { key: 'price', prompt: '請輸入售價', parse: priceParser },
-  { key: 'buyerFeePercent', prompt: '請輸入買手費(輸入百分比數字,例如 5 代表 5%)', parse: numberParser },
-  { key: 'weight', prompt: '請輸入重量(kg)', parse: numberParser },
-  {
-    key: 'shippingRate',
-    prompt: '請輸入每公斤運費(預設200,可直接點下方按鈕)',
-    quickReplyItems: [{ label: '使用預設200', text: '200' }],
-    parse: numberParser,
-  },
-  {
-    key: 'peerRate',
-    prompt: '請輸入同行匯率(預設42,可直接點下方按鈕)',
-    quickReplyItems: [{ label: '使用預設42', text: '42' }],
-    parse: numberParser,
-  },
-  {
-    key: 'profit',
-    prompt: '請輸入利潤(預設200,可直接點下方按鈕)',
-    quickReplyItems: [{ label: '使用預設200', text: '200' }],
-    parse: numberParser,
-  },
+  { key: 'peerKrwFields', type: 'template', fields: PEER_KRW_FIELDS, prompt: PEER_KRW_TEMPLATE_PROMPT },
 ];
 
 const FLOWS = {
@@ -276,10 +318,18 @@ async function handleEvent(event) {
   }
 
   try {
-    const value = currentStep.type === 'image'
-      ? await getLineImageBase64(event.message.id)
-      : currentStep.parse(text);
-    session.data[currentStep.key] = value;
+    if (currentStep.type === 'image') {
+      session.data[currentStep.key] = await getLineImageBase64(event.message.id);
+    } else if (currentStep.type === 'template') {
+      const parsed = parseTemplate(text, currentStep.fields);
+      Object.assign(session.data, parsed);
+      // 同行報價-台幣:重量沒填就視為已含運費,每公斤運費強制歸零
+      if (session.flow === 'peerTwd' && (session.data.weight === null || session.data.weight === undefined)) {
+        session.data.shippingRate = 0;
+      }
+    } else {
+      session.data[currentStep.key] = currentStep.parse(text);
+    }
 
     const extraMessages = [];
     if (currentStep.after) {
@@ -303,7 +353,7 @@ async function handleEvent(event) {
     const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, result))];
     return client.replyMessage(event.replyToken, messages);
   } catch (err) {
-    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n${currentStep.prompt}`, currentStep));
+    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${currentStep.prompt}`, currentStep));
   }
 }
 
