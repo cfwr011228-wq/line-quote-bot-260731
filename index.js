@@ -94,12 +94,12 @@ const PEER_TWD_FIELDS = [
 ];
 
 const PEER_KRW_FIELDS = [
-  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '買手費(%)', key: 'buyerFeePercent', type: 'number', required: true },
   { label: '重量(kg)', key: 'weight', type: 'number', required: true },
+  { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
@@ -405,7 +405,6 @@ function buildQuoteMessage(flow, data, result) {
 
   const lines = [
     '✅ 同行報價完成(韓幣)',
-    `同行:${data.peerName}`,
     `品牌:${data.brand}`,
     `名稱:${data.name}`,
     `售價:${data.price}(同行匯率 1:${data.peerRate})`,
