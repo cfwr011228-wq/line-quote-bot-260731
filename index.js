@@ -80,6 +80,7 @@ const GENERAL_FIELDS = [
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '重量(kg)', key: 'weight', type: 'number', required: true },
+  { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
@@ -94,6 +95,7 @@ const PEER_TWD_FIELDS = [
 ];
 
 const PEER_KRW_FIELDS = [
+  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
   { label: '售價', key: 'price', type: 'price', required: true },
@@ -109,10 +111,15 @@ function buildTemplateText(instruction, fields) {
   return `${instruction}\n\n${lines.join('\n')}`;
 }
 
-const GENERAL_TEMPLATE_PROMPT = buildTemplateText(
-  '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(原價不需要可以留空)',
-  GENERAL_FIELDS
-);
+function buildGeneralTemplatePrompt(session) {
+  const fieldsWithDynamicDefault = GENERAL_FIELDS.map((f) =>
+    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
+  );
+  return buildTemplateText(
+    '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(原價不需要可以留空;匯率已帶入剛剛查到的參考值,如果你要用別的匯率,直接改掉就好)',
+    fieldsWithDynamicDefault
+  );
+}
 const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
   '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(重量若不填,代表售價已含運費)',
   PEER_TWD_FIELDS
@@ -123,7 +130,8 @@ const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
 );
 
 // 解析使用者傳回的整段文字,依照每一行「標籤：值」對應欄位
-function parseTemplate(text, fields) {
+function parseTemplate(text, fields, dynamicDefaults) {
+  dynamicDefaults = dynamicDefaults || {};
   const map = {};
   text.split('\n').forEach((line) => {
     const idx = line.search(/[:：]/);
@@ -153,6 +161,8 @@ function parseTemplate(text, fields) {
     if (!raw) {
       if (f.default !== undefined) {
         data[f.key] = f.default;
+      } else if (dynamicDefaults[f.key] !== undefined) {
+        data[f.key] = dynamicDefaults[f.key];
       } else if (f.required) {
         missing.push(f.label);
       } else {
@@ -194,10 +204,16 @@ const GENERAL_STEPS = [
       const meta = CURRENCY_META[session.data.currency];
       const rate = await fetchFxRate(meta.code);
       session.data.fxRate = rate;
-      return `今日台幣:${meta.country} = 1:${rate}`;
+      return `今日參考匯率:台幣 1:${rate}(${meta.country},僅供參考)`;
     },
   },
-  { key: 'generalFields', type: 'template', fields: GENERAL_FIELDS, prompt: GENERAL_TEMPLATE_PROMPT },
+  {
+    key: 'generalFields',
+    type: 'template',
+    fields: GENERAL_FIELDS,
+    promptFn: buildGeneralTemplatePrompt,
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+  },
   {
     key: 'category',
     quickReplyItems: CATEGORIES,
@@ -241,6 +257,10 @@ function newSession(flow) {
   return { flow, stepIndex: 0, data: {} };
 }
 
+function stepPrompt(step, session) {
+  return step.promptFn ? step.promptFn(session) : step.prompt;
+}
+
 function buildStepMessage(text, step) {
   const msg = { type: 'text', text };
   if (step && step.quickReplyItems) {
@@ -277,7 +297,7 @@ async function handleEvent(event) {
     const session = newSession('general');
     sessions.set(userId, session);
     const step = advance(GENERAL_STEPS, session);
-    return client.replyMessage(event.replyToken, buildStepMessage(step.prompt, step));
+    return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(step, session), step));
   }
 
   if (text === '同行報價') {
@@ -298,7 +318,7 @@ async function handleEvent(event) {
       session.flow = text === '台幣報價' ? 'peerTwd' : 'peerKrw';
       session.stepIndex = 0;
       const step = advance(FLOWS[session.flow], session);
-      return client.replyMessage(event.replyToken, buildStepMessage(step.prompt, step));
+      return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(step, session), step));
     }
     return client.replyMessage(
       event.replyToken,
@@ -321,7 +341,8 @@ async function handleEvent(event) {
     if (currentStep.type === 'image') {
       session.data[currentStep.key] = await getLineImageBase64(event.message.id);
     } else if (currentStep.type === 'template') {
-      const parsed = parseTemplate(text, currentStep.fields);
+      const dynDefaults = currentStep.dynamicDefaultsFn ? currentStep.dynamicDefaultsFn(session) : {};
+      const parsed = parseTemplate(text, currentStep.fields, dynDefaults);
       Object.assign(session.data, parsed);
       // 同行報價-台幣:重量沒填就視為已含運費,每公斤運費強制歸零
       if (session.flow === 'peerTwd' && (session.data.weight === null || session.data.weight === undefined)) {
@@ -341,7 +362,7 @@ async function handleEvent(event) {
     const nextStep = advance(steps, session);
 
     if (nextStep) {
-      const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(nextStep.prompt, nextStep)];
+      const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(stepPrompt(nextStep, session), nextStep)];
       return client.replyMessage(event.replyToken, messages);
     }
 
@@ -353,7 +374,7 @@ async function handleEvent(event) {
     const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, result))];
     return client.replyMessage(event.replyToken, messages);
   } catch (err) {
-    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${currentStep.prompt}`, currentStep));
+    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
   }
 }
 
@@ -405,6 +426,7 @@ function buildQuoteMessage(flow, data, result) {
 
   const lines = [
     '✅ 同行報價完成(韓幣)',
+    `同行:${data.peerName}`,
     `品牌:${data.brand}`,
     `名稱:${data.name}`,
     `售價:${data.price}(同行匯率 1:${data.peerRate})`,
