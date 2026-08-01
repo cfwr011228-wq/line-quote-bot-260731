@@ -16,16 +16,25 @@ const APPS_SCRIPT_SECRET = process.env.APPS_SCRIPT_SECRET;
 const sessions = new Map();
 
 const CURRENCY_META = {
-  '韓幣': { code: 'KRW', country: '韓國' },
-  '美金': { code: 'USD', country: '美國' },
-  '日幣': { code: 'JPY', country: '日本' },
-  '泰銖': { code: 'THB', country: '泰國' },
+  '韓幣': { code: 'KRW', country: '韓國', emoji: '🇰🇷' },
+  '美金': { code: 'USD', country: '美國', emoji: '💵' },
+  '日幣': { code: 'JPY', country: '日本', emoji: '💴' },
+  '泰銖': { code: 'THB', country: '泰國', emoji: '🇹🇭' },
 };
 
-const CATEGORIES = [
-  '食品類', '玩具類', '電器用品', '藥品類', '服飾類',
-  '美妝類', '文具/雜貨', '寢具', '噴霧類', '保健食品',
-];
+const CATEGORY_EMOJI = {
+  '食品類': '🍔',
+  '玩具類': '🧸',
+  '電器用品': '🔌',
+  '藥品類': '💊',
+  '服飾類': '👕',
+  '美妝類': '💄',
+  '文具/雜貨': '✏️',
+  '寢具': '🛏️',
+  '噴霧類': '💨',
+  '保健食品': '🌿',
+};
+const CATEGORIES = Object.keys(CATEGORY_EMOJI);
 
 function numberParser(text) {
   const n = Number(text);
@@ -33,7 +42,7 @@ function numberParser(text) {
   return n;
 }
 
-// 售價要四捨五入到十位數(個位數變 0),例如 1234 -> 1230, 1235 -> 1240
+// 四捨五入到十位數(個位數變 0),例如 1234 -> 1230, 1235 -> 1240
 function roundTo10(n) {
   return Math.round(n / 10) * 10;
 }
@@ -79,7 +88,10 @@ const GENERAL_FIELDS = [
   { label: '商品名稱', key: 'name', type: 'text', required: true },
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '重量(kg)', key: 'weight', type: 'number', required: true },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
+  { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表親自帶回,不加運費
   { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
@@ -88,8 +100,11 @@ const PEER_TWD_FIELDS = [
   { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
   { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '重量(kg)', key: 'weight', type: 'number' }, // 留空代表已含運費
+  { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表已含運費
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
@@ -98,6 +113,9 @@ const PEER_KRW_FIELDS = [
   { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '買手費(%)', key: 'buyerFeePercent', type: 'number', required: true },
   { label: '重量(kg)', key: 'weight', type: 'number', required: true },
@@ -116,16 +134,17 @@ function buildGeneralTemplatePrompt(session) {
     f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
   );
   return buildTemplateText(
-    '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(原價不需要可以留空;匯率已帶入剛剛查到的參考值,如果你要用別的匯率,直接改掉就好)',
+    '請複製整段填寫、回傳\n⚠️原價/顏色/尺寸/款式:選填\n⚠️重量:選填,未填則為親自帶回(不加運費)\n⚠️匯率已帶入今日參考匯率,如需使用別的匯率請自行修改',
     fieldsWithDynamicDefault
   );
 }
+
 const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
-  '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可(重量若不填,代表售價已含運費)',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式:選填\n⚠️重量:選填,未填則為已含運費',
   PEER_TWD_FIELDS
 );
 const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
-  '請把下面整段複製,在每個「：」後面直接填寫,填完整段傳回來即可',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式:選填',
   PEER_KRW_FIELDS
 );
 
@@ -193,7 +212,10 @@ const GENERAL_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
   {
     key: 'currency',
-    quickReplyItems: Object.keys(CURRENCY_META),
+    quickReplyItems: Object.entries(CURRENCY_META).map(([name, meta]) => ({
+      label: `${meta.emoji} ${name}`,
+      text: name,
+    })),
     prompt: '請選擇幣別',
     parse: (text) => {
       if (!CURRENCY_META[text]) throw new Error('請點選下方選單的幣別');
@@ -216,7 +238,7 @@ const GENERAL_STEPS = [
   },
   {
     key: 'category',
-    quickReplyItems: CATEGORIES,
+    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
     prompt: '請選擇商品類別',
     parse: (text) => {
       if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
@@ -304,7 +326,12 @@ async function handleEvent(event) {
     sessions.set(userId, { flow: 'peerSelect', stepIndex: 0, data: {} });
     return client.replyMessage(
       event.replyToken,
-      buildStepMessage('請選擇報價類型', { quickReplyItems: ['台幣報價', '韓幣報價'] })
+      buildStepMessage('請選擇報價類型', {
+        quickReplyItems: [
+          { label: '🇹🇼 台幣報價', text: '台幣報價' },
+          { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
+        ],
+      })
     );
   }
 
@@ -322,7 +349,12 @@ async function handleEvent(event) {
     }
     return client.replyMessage(
       event.replyToken,
-      buildStepMessage('請點選下方選單:台幣報價 或 韓幣報價', { quickReplyItems: ['台幣報價', '韓幣報價'] })
+      buildStepMessage('請點選下方選單:台幣報價 或 韓幣報價', {
+        quickReplyItems: [
+          { label: '🇹🇼 台幣報價', text: '台幣報價' },
+          { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
+        ],
+      })
     );
   }
 
@@ -393,7 +425,12 @@ async function submitToAppsScript(flow, data) {
   if (!json.success) {
     throw new Error(json.error || '寫入試算表失敗');
   }
-  return json; // { success: true, total, shippingRatePerKg? }
+  return json; // { success, productId, total, shippingRatePerKg?, baseCost, shippingCost }
+}
+
+function costLine(result) {
+  const sum = result.baseCost + result.shippingCost;
+  return `💰 商品成本：${result.baseCost}+${result.shippingCost}=${sum}`;
 }
 
 function buildQuoteMessage(flow, data, result) {
@@ -403,16 +440,25 @@ function buildQuoteMessage(flow, data, result) {
       lines.push(`原價:${data.originalPrice}`);
     }
     lines.push(`售價:${data.price}(匯率 1:${data.fxRate})`);
-    lines.push(`重量:${data.weight} kg`);
+    if (data.weight !== null && data.weight !== undefined) {
+      lines.push(`重量:${data.weight} kg`);
+    } else {
+      lines.push('重量:未填(親自帶回)');
+    }
     lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
     lines.push(`利潤:${data.profit}`);
     lines.push('——————————');
     lines.push(`💰 建議報價:${result.total}`);
+    lines.push(costLine(result));
     return lines.join('\n');
   }
 
   if (flow === 'peerTwd') {
-    const lines = ['✅ 同行報價完成(台幣)', `編號:${result.productId}`, `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`, `售價:${data.price}`];
+    const lines = ['✅ 同行報價完成(台幣)', `編號:${result.productId}`, `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    if (data.color) lines.push(`顏色:${data.color}`);
+    if (data.size) lines.push(`尺寸:${data.size}`);
+    if (data.style) lines.push(`款式:${data.style}`);
+    lines.push(`售價:${data.price}`);
     if (data.weight) {
       lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
     } else {
@@ -421,6 +467,7 @@ function buildQuoteMessage(flow, data, result) {
     lines.push(`利潤:${data.profit}`);
     lines.push('——————————');
     lines.push(`💰 建議報價:${result.total}`);
+    lines.push(costLine(result));
     return lines.join('\n');
   }
 
@@ -430,13 +477,17 @@ function buildQuoteMessage(flow, data, result) {
     `同行:${data.peerName}`,
     `品牌:${data.brand}`,
     `名稱:${data.name}`,
-    `售價:${data.price}(同行匯率 1:${data.peerRate})`,
-    `買手費:${data.buyerFeePercent}%`,
-    `重量:${data.weight} kg,每公斤運費:${data.shippingRate}`,
-    `利潤:${data.profit}`,
-    '——————————',
-    `💰 建議報價:${result.total}`,
   ];
+  if (data.color) lines.push(`顏色:${data.color}`);
+  if (data.size) lines.push(`尺寸:${data.size}`);
+  if (data.style) lines.push(`款式:${data.style}`);
+  lines.push(`售價:${data.price}(同行匯率 1:${data.peerRate})`);
+  lines.push(`買手費:${data.buyerFeePercent}%`);
+  lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
+  lines.push(`利潤:${data.profit}`);
+  lines.push('——————————');
+  lines.push(`💰 建議報價:${result.total}`);
+  lines.push(costLine(result));
   return lines.join('\n');
 }
 
