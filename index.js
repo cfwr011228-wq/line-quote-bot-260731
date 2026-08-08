@@ -97,6 +97,16 @@ async function fetchFxRate(code) {
   return raw >= 10 ? Math.round(raw) : Math.round(raw * 100) / 100;
 }
 
+// 美金/免稅店方向相反,要換算成「1 美金 = X 台幣」
+async function fetchUsdToTwdRate() {
+  const res = await fetch('https://open.er-api.com/v6/latest/TWD');
+  const json = await res.json();
+  if (json.result !== 'success' || !json.rates || !json.rates.USD) {
+    throw new Error('匯率查詢失敗,請稍後再試一次');
+  }
+  return round2(1 / json.rates.USD);
+}
+
 // ------------------- 整段範本欄位定義 -------------------
 // type: 'text' | 'number' | 'price'(number 再四捨五入到十位數)
 // required: 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
@@ -141,6 +151,50 @@ const PEER_KRW_FIELDS = [
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
+
+const DUTY_FREE_STORES = { lotte: '樂天', shinsegae: '新世界', emart: '愛蜜客', shilla: '新羅', hyundai: '現代' };
+
+const DUTY_FREE_ONLINE_FIELDS = [
+  { label: '品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
+  { label: '樂天售價', key: 'lotte', type: 'number' },
+  { label: '新世界售價', key: 'shinsegae', type: 'number' },
+  { label: '愛蜜客售價', key: 'emart', type: 'number' },
+  { label: '新羅售價', key: 'shilla', type: 'number' },
+  { label: '現代售價', key: 'hyundai', type: 'number' },
+  { label: '重量(kg)', key: 'weight', type: 'number' },
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+const DUTY_FREE_PHYSICAL_FIELDS = [
+  { label: '品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
+  { label: '售價', key: 'price', type: 'number', required: true },
+  { label: '折扣1(金卡%)', key: 'discount1', type: 'number' },
+  { label: '折扣2(返點%)', key: 'discount2', type: 'number' },
+  { label: '重量(kg)', key: 'weight', type: 'number' },
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+const DUTY_FREE_ONLINE_TEMPLATE_PROMPT = buildTemplateText(
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註/原價:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  DUTY_FREE_ONLINE_FIELDS
+);
+
+const DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT = buildTemplateText(
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註/原價/折扣1/折扣2:選填(折扣請輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  DUTY_FREE_PHYSICAL_FIELDS
+);
 
 const KOREA_KRW_FIELDS = [
   { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
@@ -308,11 +362,41 @@ const KOREA_KRW_STEPS = [
   },
 ];
 
+const DUTY_FREE_ONLINE_STEPS = [
+  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key: 'dutyFreeOnlineFields', type: 'template', fields: DUTY_FREE_ONLINE_FIELDS, prompt: DUTY_FREE_ONLINE_TEMPLATE_PROMPT },
+  {
+    key: 'category',
+    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
+    prompt: '請選擇商品類別',
+    parse: (text) => {
+      if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
+      return text;
+    },
+  },
+];
+
+const DUTY_FREE_PHYSICAL_STEPS = [
+  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key: 'dutyFreePhysicalFields', type: 'template', fields: DUTY_FREE_PHYSICAL_FIELDS, prompt: DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT },
+  {
+    key: 'category',
+    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
+    prompt: '請選擇商品類別',
+    parse: (text) => {
+      if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
+      return text;
+    },
+  },
+];
+
 const FLOWS = {
   general: GENERAL_STEPS,
   peerTwd: PEER_TWD_STEPS,
   peerKrw: PEER_KRW_STEPS,
   koreaKrw: KOREA_KRW_STEPS,
+  dutyFreeOnline: DUTY_FREE_ONLINE_STEPS,
+  dutyFreePhysical: DUTY_FREE_PHYSICAL_STEPS,
 };
 
 // ------------------- LINE webhook -------------------
@@ -399,6 +483,28 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
   }
 
+  if (text === '線上免稅店' && !sessions.has(userId)) {
+    const session = newSession('dutyFreeOnline');
+    sessions.set(userId, session);
+    const liveRate = await fetchUsdToTwdRate();
+    const usedRate = round2(liveRate + 1);
+    session.data.fxRate = usedRate;
+    const infoMsg = `今日參考匯率:1美金:${liveRate}台幣\n本次報價使用匯率:1美金:${usedRate}台幣(即時匯率+1)`;
+    const step = advance(DUTY_FREE_ONLINE_STEPS, session);
+    return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
+  }
+
+  if (text === '實體免稅店' && !sessions.has(userId)) {
+    const session = newSession('dutyFreePhysical');
+    sessions.set(userId, session);
+    const liveRate = await fetchUsdToTwdRate();
+    const usedRate = round2(liveRate + 1);
+    session.data.fxRate = usedRate;
+    const infoMsg = `今日參考匯率:1美金:${liveRate}台幣\n本次報價使用匯率:1美金:${usedRate}台幣(即時匯率+1)`;
+    const step = advance(DUTY_FREE_PHYSICAL_STEPS, session);
+    return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
+  }
+
   if (text === '改報價' || text === '改利潤') {
     sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
@@ -406,7 +512,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」或「韓國代購」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」「韓國代購」「線上免稅店」或「實體免稅店」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -487,6 +593,22 @@ async function handleEvent(event) {
       if (session.flow === 'koreaKrw' && !session.data.location) {
         session.data.location = session.data.brand;
       }
+      if (session.flow === 'dutyFreeOnline') {
+        let lowestPrice = null;
+        let lowestStore = null;
+        Object.keys(DUTY_FREE_STORES).forEach((key) => {
+          const val = session.data[key];
+          if (val !== null && val !== undefined && (lowestPrice === null || val < lowestPrice)) {
+            lowestPrice = val;
+            lowestStore = DUTY_FREE_STORES[key];
+          }
+        });
+        if (lowestPrice === null) {
+          throw new Error('至少要填一間店的售價,請重新整段貼上');
+        }
+        session.data.lowestPrice = lowestPrice;
+        session.data.lowestStore = lowestStore;
+      }
     } else {
       session.data[currentStep.key] = currentStep.parse(text);
     }
@@ -559,6 +681,64 @@ function costLine(result) {
 }
 
 function buildQuoteMessage(flow, data, result) {
+  if (flow === 'dutyFreeOnline') {
+    const lines = ['✅ 免稅店線上報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    if (data.color) lines.push(`顏色:${data.color}`);
+    if (data.size) lines.push(`尺寸:${data.size}`);
+    if (data.style) lines.push(`款式:${data.style}`);
+    if (data.note) lines.push(`備註:${data.note}`);
+    if (data.originalPrice !== null && data.originalPrice !== undefined) {
+      lines.push(`原價:${data.originalPrice}`);
+    }
+    const storeLines = Object.keys(DUTY_FREE_STORES)
+      .filter((key) => data[key] !== null && data[key] !== undefined)
+      .map((key) => `${DUTY_FREE_STORES[key]}:${data[key]}`);
+    lines.push(`各店售價:${storeLines.join('、')}`);
+    lines.push(`最低售價:${data.lowestPrice}(${data.lowestStore},匯率 1美金:${data.fxRate})`);
+    if (data.weight !== null && data.weight !== undefined) {
+      lines.push(`重量:${data.weight} kg`);
+    } else {
+      lines.push('重量:未填(親飛帶回)');
+    }
+    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
+    lines.push(`利潤:${data.profit}`);
+    lines.push('——————————');
+    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
+    if (result.originalQuote !== null && result.originalQuote !== undefined) {
+      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+    }
+    return lines.join('\n');
+  }
+
+  if (flow === 'dutyFreePhysical') {
+    const lines = ['✅ 免稅店實體報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    if (data.color) lines.push(`顏色:${data.color}`);
+    if (data.size) lines.push(`尺寸:${data.size}`);
+    if (data.style) lines.push(`款式:${data.style}`);
+    if (data.note) lines.push(`備註:${data.note}`);
+    if (data.originalPrice !== null && data.originalPrice !== undefined) {
+      lines.push(`原價:${data.originalPrice}`);
+    }
+    lines.push(`售價:${data.price}(匯率 1美金:${data.fxRate})`);
+    if (data.discount1 !== null && data.discount1 !== undefined) lines.push(`折扣1(金卡):${data.discount1}%`);
+    if (data.discount2 !== null && data.discount2 !== undefined) lines.push(`折扣2(返點):${data.discount2}%`);
+    if (data.weight !== null && data.weight !== undefined) {
+      lines.push(`重量:${data.weight} kg`);
+    } else {
+      lines.push('重量:未填(親飛帶回)');
+    }
+    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
+    lines.push(`利潤:${data.profit}`);
+    lines.push('——————————');
+    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
+    if (result.originalQuote !== null && result.originalQuote !== undefined) {
+      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+    }
+    return lines.join('\n');
+  }
+
   if (flow === 'koreaKrw') {
     const lines = ['✅ 韓幣報價完成', `編號:${result.productId}`, `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.color) lines.push(`顏色:${data.color}`);
