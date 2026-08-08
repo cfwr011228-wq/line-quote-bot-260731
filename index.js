@@ -385,14 +385,14 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
   }
 
-  if (text === '改報價' || text === '改利潤') {
-    sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
+  if (text === '改利潤') {
+    sessions.set(userId, { flow: 'override', field: 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
   }
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」或「韓國代購」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」或「韓國代購」開始建立報價,或輸入「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
