@@ -548,9 +548,6 @@ function buildQuoteMessage(flow, data, result) {
     if (data.note) lines.push(`備註:${data.note}`);
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
       lines.push(`原價:${data.originalPrice}`);
-      if (result.originalQuote !== null && result.originalQuote !== undefined) {
-        lines.push(`原價報價(參考):${result.originalQuote}`);
-      }
     }
     lines.push(`售價:${data.price}(匯率 1:${data.fxRate})`);
     if (data.weight !== null && data.weight !== undefined) {
@@ -563,6 +560,9 @@ function buildQuoteMessage(flow, data, result) {
     lines.push('——————————');
     lines.push(`💰 建議報價:${result.total}`);
     lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
+    if (result.originalQuote !== null && result.originalQuote !== undefined) {
+      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+    }
     return lines.join('\n');
   }
 
