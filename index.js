@@ -47,6 +47,10 @@ function roundTo10(n) {
   return Math.round(n / 10) * 10;
 }
 
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
 // items: 陣列,每個可以是字串(label=text)或 {label, text}
 function quickReplyOf(items) {
   return {
@@ -123,6 +127,25 @@ const PEER_KRW_FIELDS = [
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
+
+const KOREA_KRW_FIELDS = [
+  { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
+  { label: '品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
+  { label: '售價', key: 'price', type: 'number', required: true }, // 不做四捨五入,直接照打的存
+  { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+const KOREA_KRW_TEMPLATE_PROMPT = buildTemplateText(
+  '請複製整段填寫、回傳\n⚠️購買地點:選填,不填則帶入品牌\n⚠️顏色/尺寸/款式/備註/原價:選填\n⚠️重量:選填,未填則為親飛帶回(不加運費)\n⚠️匯率已自動帶入,不用填',
+  KOREA_KRW_FIELDS
+);
 
 function buildTemplateText(instruction, fields) {
   const lines = fields.map((f) => `${f.label}：${f.default !== undefined ? f.default : ''}`);
@@ -257,10 +280,25 @@ const PEER_KRW_STEPS = [
   { key: 'peerKrwFields', type: 'template', fields: PEER_KRW_FIELDS, prompt: PEER_KRW_TEMPLATE_PROMPT },
 ];
 
+const KOREA_KRW_STEPS = [
+  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key: 'koreaKrwFields', type: 'template', fields: KOREA_KRW_FIELDS, prompt: KOREA_KRW_TEMPLATE_PROMPT },
+  {
+    key: 'category',
+    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
+    prompt: '請選擇商品類別',
+    parse: (text) => {
+      if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
+      return text;
+    },
+  },
+];
+
 const FLOWS = {
   general: GENERAL_STEPS,
   peerTwd: PEER_TWD_STEPS,
   peerKrw: PEER_KRW_STEPS,
+  koreaKrw: KOREA_KRW_STEPS,
 };
 
 // ------------------- LINE webhook -------------------
@@ -335,9 +373,56 @@ async function handleEvent(event) {
     );
   }
 
+  if (text === '韓國代購' && !sessions.has(userId)) {
+    const session = newSession('koreaKrw');
+    sessions.set(userId, session);
+    const meta = CURRENCY_META['韓幣'];
+    const liveRate = await fetchFxRate(meta.code);
+    const usedRate = round2(liveRate - 2);
+    session.data.fxRate = usedRate;
+    const infoMsg = `今日參考匯率:台幣 1:${liveRate}(韓國)\n本次報價使用匯率:1:${usedRate}(即時匯率−2)`;
+    const step = advance(KOREA_KRW_STEPS, session);
+    return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
+  }
+
+  if (text === '改報價' || text === '改利潤') {
+    sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
+    return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
+  }
+
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」或「同行報價」開始建立報價。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」或「韓國代購」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
+  }
+
+  if (session.flow === 'override') {
+    if (event.message.type !== 'text') {
+      return client.replyMessage(event.replyToken, buildStepMessage('請用文字輸入'));
+    }
+    const label = session.field === 'quote' ? '報價' : '利潤';
+
+    if (!session.data.productId) {
+      session.data.productId = text.trim();
+      return client.replyMessage(event.replyToken, buildStepMessage(`請輸入新的${label}金額`));
+    }
+
+    let value;
+    try {
+      value = numberParser(text);
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n請輸入數字`));
+    }
+
+    const productId = session.data.productId;
+    sessions.delete(userId);
+    try {
+      const result = await submitOverride(session.field, productId, value);
+      const lines = [`✅ 已更新 編號 ${productId} 的${label}`, `新${label}:${value}`];
+      if (result.newTotal !== undefined) lines.push(`目前報價:${result.newTotal}`);
+      return client.replyMessage(event.replyToken, buildStepMessage(lines.join('\n')));
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+    }
   }
 
   if (session.flow === 'peerSelect') {
@@ -379,6 +464,9 @@ async function handleEvent(event) {
       // 同行報價-台幣:重量沒填就視為已含運費,每公斤運費強制歸零
       if (session.flow === 'peerTwd' && (session.data.weight === null || session.data.weight === undefined)) {
         session.data.shippingRate = 0;
+      }
+      if (session.flow === 'koreaKrw' && !session.data.location) {
+        session.data.location = session.data.brand;
       }
     } else {
       session.data[currentStep.key] = currentStep.parse(text);
@@ -428,12 +516,53 @@ async function submitToAppsScript(flow, data) {
   return json; // { success, productId, total, shippingRatePerKg?, baseCost, shippingCost }
 }
 
+async function submitOverride(field, productId, value) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'override', field, productId, value }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '更新失敗');
+  }
+  return json; // { success, productId, newTotal }
+}
+
 function costLine(result) {
   const sum = result.baseCost + result.shippingCost;
   return `💰 商品成本：${result.baseCost}+${result.shippingCost}=${sum}`;
 }
 
 function buildQuoteMessage(flow, data, result) {
+  if (flow === 'koreaKrw') {
+    const lines = ['✅ 韓幣報價完成', `編號:${result.productId}`, `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    if (data.color) lines.push(`顏色:${data.color}`);
+    if (data.size) lines.push(`尺寸:${data.size}`);
+    if (data.style) lines.push(`款式:${data.style}`);
+    if (data.note) lines.push(`備註:${data.note}`);
+    if (data.originalPrice !== null && data.originalPrice !== undefined) {
+      lines.push(`原價:${data.originalPrice}`);
+    }
+    lines.push(`售價:${data.price}(匯率 1:${data.fxRate})`);
+    if (data.weight !== null && data.weight !== undefined) {
+      lines.push(`重量:${data.weight} kg`);
+    } else {
+      lines.push('重量:未填(親飛帶回)');
+    }
+    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
+    lines.push(`利潤:${data.profit}`);
+    lines.push('——————————');
+    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
+    return lines.join('\n');
+  }
+
   if (flow === 'general') {
     const lines = ['✅ 報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
