@@ -62,7 +62,7 @@ function quickReplyOf(items) {
   };
 }
 
-// 下載 LINE 圖片,轉成 base64 字串,稍後整包交給 Apps Script 存到 Drive
+// 下載 LINE 圖片,轉成 base64 字串
 async function getLineImageBase64(messageId) {
   const contentStream = await client.getMessageContent(messageId);
   const chunks = [];
@@ -70,6 +70,20 @@ async function getLineImageBase64(messageId) {
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString('base64');
+}
+
+// 一收到圖片就馬上呼叫 Apps Script 上傳到 Drive,不用等到整個流程最後一步才傳,
+// 這樣使用者填表單、選類別的這段時間圖片已經在背景傳完了,最後回覆速度會快很多。
+// 如果上傳失敗(例如網路不穩),就退回舊做法,把 base64 一起帶到最後一步再讓 Apps Script 處理。
+async function uploadImageToDrive(base64) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'uploadImage', imageBase64: base64 }),
+  });
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || '圖片上傳失敗');
+  return json.imageUrl;
 }
 
 // 免費、不用金鑰的匯率 API,回傳「1 台幣 = X 外幣」
@@ -456,7 +470,12 @@ async function handleEvent(event) {
 
   try {
     if (currentStep.type === 'image') {
-      session.data[currentStep.key] = await getLineImageBase64(event.message.id);
+      const base64 = await getLineImageBase64(event.message.id);
+      try {
+        session.data.imageUrl = await uploadImageToDrive(base64);
+      } catch (uploadErr) {
+        session.data.imageBase64 = base64; // 立即上傳失敗就退回舊做法,最後一步再讓 Apps Script 處理
+      }
     } else if (currentStep.type === 'template') {
       const dynDefaults = currentStep.dynamicDefaultsFn ? currentStep.dynamicDefaultsFn(session) : {};
       const parsed = parseTemplate(text, currentStep.fields, dynDefaults);
