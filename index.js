@@ -179,7 +179,11 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
   { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'number', required: true },
+  { label: '樂天售價', key: 'lotte', type: 'number' },
+  { label: '新世界售價', key: 'shinsegae', type: 'number' },
+  { label: '愛蜜客售價', key: 'emart', type: 'number' },
+  { label: '新羅售價', key: 'shilla', type: 'number' },
+  { label: '現代售價', key: 'hyundai', type: 'number' },
   { label: '折扣1(金卡%)', key: 'discount1', type: 'number' },
   { label: '折扣2(返點%)', key: 'discount2', type: 'number' },
   { label: '重量(kg)', key: 'weight', type: 'number' },
@@ -192,7 +196,7 @@ const DUTY_FREE_ONLINE_TEMPLATE_PROMPT = buildTemplateText(
 );
 
 const DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註/原價/折扣1/折扣2:選填(折扣請輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註/原價:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️折扣1/折扣2:選填(輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
   DUTY_FREE_PHYSICAL_FIELDS
 );
 
@@ -593,7 +597,7 @@ async function handleEvent(event) {
       if (session.flow === 'koreaKrw' && !session.data.location) {
         session.data.location = session.data.brand;
       }
-      if (session.flow === 'dutyFreeOnline') {
+      if (session.flow === 'dutyFreeOnline' || session.flow === 'dutyFreePhysical') {
         let lowestPrice = null;
         let lowestStore = null;
         Object.keys(DUTY_FREE_STORES).forEach((key) => {
@@ -720,7 +724,11 @@ function buildQuoteMessage(flow, data, result) {
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
       lines.push(`原價:${data.originalPrice}`);
     }
-    lines.push(`售價:${data.price}(匯率 1美金:${data.fxRate})`);
+    const storeLines = Object.keys(DUTY_FREE_STORES)
+      .filter((key) => data[key] !== null && data[key] !== undefined)
+      .map((key) => `${DUTY_FREE_STORES[key]}:${data[key]}`);
+    lines.push(`各店售價:${storeLines.join('、')}`);
+    lines.push(`最低售價:${data.lowestPrice}(${data.lowestStore},匯率 1美金:${data.fxRate})`);
     if (data.discount1 !== null && data.discount1 !== undefined) lines.push(`折扣1(金卡):${data.discount1}%`);
     if (data.discount2 !== null && data.discount2 !== undefined) lines.push(`折扣2(返點):${data.discount2}%`);
     if (data.weight !== null && data.weight !== undefined) {
