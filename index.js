@@ -280,7 +280,8 @@ const USA_FIELDS = [
   { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,運費+包材費都不收
   { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', default: 10 },
-  { label: '運費', key: 'shippingFee', type: 'number', default: 135 },
+  { label: '運費（每磅）', key: 'shippingFeePerLb', type: 'number', default: 135 },
+  { label: '包材費', key: 'packagingFee', type: 'number', default: 30 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
@@ -289,7 +290,7 @@ function buildUsaTemplatePrompt(session) {
     f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
   );
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（運費、包材費都不收）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️運費一口價135,另加包材費30（親飛帶回不算,不用填）',
+    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（運費、包材費都不收）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️運費是「每磅」美金135，重量請照樣輸入公斤，系統會自動換算成磅計費\n⚠️買手費／運費／包材費：可不填，不填就用預設值',
     fieldsWithDynamicDefault
   );
 }
@@ -920,7 +921,7 @@ function buildQuoteMessage(flow, data, result) {
     lines.push(`售價:${data.price}(匯率 1美金:${data.fxRate})`);
     lines.push(`買手費:${data.buyerFeePercent}%`);
     if (data.weight !== null && data.weight !== undefined) {
-      lines.push(`重量:${data.weight} kg,運費:${data.shippingFee}+包材費30`);
+      lines.push(`重量:${data.weight} kg,運費:每磅$${data.shippingFeePerLb},包材費:$${data.packagingFee}`);
     } else {
       lines.push('重量:未填(親飛帶回,運費、包材費都不收)');
     }
