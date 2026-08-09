@@ -638,6 +638,11 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(step, session), step));
   }
 
+  if (text === '收款') {
+    sessions.set(userId, { flow: 'collectPayment', step: 'awaitName', data: {} });
+    return client.replyMessage(event.replyToken, buildStepMessage('請輸入客人姓名'));
+  }
+
   if (text === '改報價' || text === '改利潤') {
     sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
@@ -645,7 +650,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,輸入「新增訂單」建立客人訂單,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,輸入「新增訂單」建立客人訂單,輸入「收款」標記客人已付款,或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -701,7 +706,107 @@ async function handleEvent(event) {
     );
   }
 
-  const steps = FLOWS[session.flow];
+  if (session.flow === 'collectPayment') {
+    const PAYMENT_METHODS = ['PC', 'LINE', '轉帳', '賣貨便/信用卡', '現金/小芳', '現金/宛柔'];
+
+    if (session.step === 'awaitName') {
+      const customerName = text;
+      let unpaid;
+      try {
+        unpaid = await fetchUnpaidOrders(customerName);
+      } catch (err) {
+        sessions.delete(userId);
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+      }
+      if (!unpaid || unpaid.length === 0) {
+        sessions.delete(userId);
+        return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」目前沒有未付款的訂單。`));
+      }
+      session.data.customerName = customerName;
+      session.data.unpaidOrders = unpaid;
+      session.step = 'awaitScope';
+
+      const lines = [`「${customerName}」未付款訂單:`];
+      let sum = 0;
+      unpaid.forEach((o) => {
+        lines.push(`${o.orderId}｜${o.name}${o.color ? '／' + o.color : ''}${o.size ? '／' + o.size : ''} x${o.quantity}｜$${o.total}`);
+        sum += o.total;
+      });
+      lines.push('——————————');
+      lines.push(`💰 未付總金額:${sum}`);
+
+      return client.replyMessage(event.replyToken, [
+        buildStepMessage(lines.join('\n')),
+        buildStepMessage('請選擇付款範圍', {
+          quickReplyItems: [
+            { label: '✅ 全部付款', text: '全部付款' },
+            { label: '☑️ 部分付款', text: '部分付款' },
+          ],
+        }),
+      ]);
+    }
+
+    if (session.step === 'awaitScope') {
+      if (text === '全部付款') {
+        session.data.selectedOrderIds = session.data.unpaidOrders.map((o) => o.orderId);
+        session.step = 'awaitPaymentMethod';
+        return client.replyMessage(event.replyToken, buildStepMessage('請選擇付款方式', {
+          quickReplyItems: PAYMENT_METHODS.map((m) => ({ label: m, text: m })),
+        }));
+      }
+      if (text === '部分付款') {
+        session.step = 'awaitOrderIds';
+        return client.replyMessage(event.replyToken, buildStepMessage('請輸入要付款的訂單編號,多筆請用逗號分隔(例如:ORD0012,ORD0013)'));
+      }
+      return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單:全部付款／部分付款', {
+        quickReplyItems: [
+          { label: '✅ 全部付款', text: '全部付款' },
+          { label: '☑️ 部分付款', text: '部分付款' },
+        ],
+      }));
+    }
+
+    if (session.step === 'awaitOrderIds') {
+      const ids = text.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+      const validIds = session.data.unpaidOrders.map((o) => o.orderId);
+      const invalid = ids.filter((id) => !validIds.includes(id));
+      if (ids.length === 0 || invalid.length > 0) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 訂單編號有誤或不在未付款清單裡:${invalid.join('、') || '(未輸入)'}\n請重新輸入`));
+      }
+      session.data.selectedOrderIds = ids;
+      session.step = 'awaitPaymentMethod';
+      return client.replyMessage(event.replyToken, buildStepMessage('請選擇付款方式', {
+        quickReplyItems: PAYMENT_METHODS.map((m) => ({ label: m, text: m })),
+      }));
+    }
+
+    if (session.step === 'awaitPaymentMethod') {
+      if (!PAYMENT_METHODS.includes(text)) {
+        return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單的付款方式', {
+          quickReplyItems: PAYMENT_METHODS.map((m) => ({ label: m, text: m })),
+        }));
+      }
+      let result;
+      try {
+        result = await markOrdersPaid(session.data.selectedOrderIds, text);
+      } catch (err) {
+        sessions.delete(userId);
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+      }
+      const paidTotal = session.data.unpaidOrders
+        .filter((o) => session.data.selectedOrderIds.includes(o.orderId))
+        .reduce((sum, o) => sum + o.total, 0);
+      const allTotal = session.data.unpaidOrders.reduce((sum, o) => sum + o.total, 0);
+      const remaining = allTotal - paidTotal;
+
+      const lines = [`✅ 已標記付款(${text})`, `客人:${session.data.customerName}`, `訂單編號:${session.data.selectedOrderIds.join('、')}`, `💰 本次付款:${paidTotal}`];
+      if (remaining > 0) lines.push(`💰 尚未付款:${remaining}`);
+      sessions.delete(userId);
+      return client.replyMessage(event.replyToken, buildStepMessage(lines.join('\n')));
+    }
+  }
+
+
   const currentStep = steps[session.stepIndex];
 
   if (currentStep.type === 'image') {
@@ -822,6 +927,42 @@ async function submitOverride(field, productId, value) {
     throw new Error(json.error || '更新失敗');
   }
   return json; // { success, productId, newTotal }
+}
+
+async function fetchUnpaidOrders(customerName) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'listUnpaid', customerName }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '查詢失敗');
+  }
+  return json.orders; // [{ orderId, name, color, size, style, quantity, total }]
+}
+
+async function markOrdersPaid(orderIds, paymentMethod) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'markPaid', orderIds, paymentMethod }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '更新失敗');
+  }
+  return json;
 }
 
 function costLine(result) {
