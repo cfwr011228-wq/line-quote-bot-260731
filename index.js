@@ -51,6 +51,10 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+function ceilTo10(n) {
+  return Math.ceil(n / 10) * 10;
+}
+
 // items: 陣列,每個可以是字串(label=text)或 {label, text}
 function quickReplyOf(items) {
   return {
@@ -152,7 +156,7 @@ const PEER_KRW_FIELDS = [
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
-const DUTY_FREE_STORES = { lotte: '樂天', shinsegae: '新世界', emart: '愛蜜客', shilla: '新羅', hyundai: '現代' };
+const DUTY_FREE_STORES = { lotte: '樂天', shinsegae: '新世界', emart: '愛寶客', shilla: '新羅', hyundai: '現代' };
 
 const DUTY_FREE_ONLINE_FIELDS = [
   { label: '品牌', key: 'brand', type: 'text', required: true },
@@ -161,10 +165,9 @@ const DUTY_FREE_ONLINE_FIELDS = [
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '樂天售價', key: 'lotte', type: 'number' },
   { label: '新世界售價', key: 'shinsegae', type: 'number' },
-  { label: '愛蜜客售價', key: 'emart', type: 'number' },
+  { label: '愛寶客售價', key: 'emart', type: 'number' },
   { label: '新羅售價', key: 'shilla', type: 'number' },
   { label: '現代售價', key: 'hyundai', type: 'number' },
   { label: '重量(kg)', key: 'weight', type: 'number' },
@@ -178,10 +181,9 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '樂天售價', key: 'lotte', type: 'number' },
   { label: '新世界售價', key: 'shinsegae', type: 'number' },
-  { label: '愛蜜客售價', key: 'emart', type: 'number' },
+  { label: '愛寶客售價', key: 'emart', type: 'number' },
   { label: '新羅售價', key: 'shilla', type: 'number' },
   { label: '現代售價', key: 'hyundai', type: 'number' },
   { label: '折扣1(金卡%)', key: 'discount1', type: 'number' },
@@ -191,12 +193,12 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
 ];
 
 const DUTY_FREE_ONLINE_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註/原價:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
   DUTY_FREE_ONLINE_FIELDS
 );
 
 const DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註/原價:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️折扣1/折扣2:選填(輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️折扣1/折扣2:選填(輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
   DUTY_FREE_PHYSICAL_FIELDS
 );
 
@@ -685,52 +687,26 @@ function costLine(result) {
 }
 
 function buildQuoteMessage(flow, data, result) {
-  if (flow === 'dutyFreeOnline') {
-    const lines = ['✅ 免稅店線上報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.color) lines.push(`顏色:${data.color}`);
-    if (data.size) lines.push(`尺寸:${data.size}`);
-    if (data.style) lines.push(`款式:${data.style}`);
-    if (data.note) lines.push(`備註:${data.note}`);
-    if (data.originalPrice !== null && data.originalPrice !== undefined) {
-      lines.push(`原價:${data.originalPrice}`);
-    }
-    const storeLines = Object.keys(DUTY_FREE_STORES)
-      .filter((key) => data[key] !== null && data[key] !== undefined)
-      .map((key) => `${DUTY_FREE_STORES[key]}:${data[key]}`);
-    lines.push(`各店售價:${storeLines.join('、')}`);
-    lines.push(`最低售價:${data.lowestPrice}(${data.lowestStore},匯率 1美金:${data.fxRate})`);
-    if (data.weight !== null && data.weight !== undefined) {
-      lines.push(`重量:${data.weight} kg`);
-    } else {
-      lines.push('重量:未填(親飛帶回)');
-    }
-    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
-    lines.push(`利潤:${data.profit}`);
-    lines.push('——————————');
-    lines.push(`💰 建議報價:${result.total}`);
-    lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
-    if (result.originalQuote !== null && result.originalQuote !== undefined) {
-      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
-    }
-    return lines.join('\n');
-  }
+  if (flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical') {
+    const isPhysical = flow === 'dutyFreePhysical';
+    const title = isPhysical ? '✅ 免稅店實體報價完成' : '✅ 免稅店線上報價完成';
+    const d1 = data.discount1 ? 1 - data.discount1 / 100 : 1;
+    const d2 = data.discount2 ? 1 - data.discount2 / 100 : 1;
 
-  if (flow === 'dutyFreePhysical') {
-    const lines = ['✅ 免稅店實體報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    const lines = [title, `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
     if (data.style) lines.push(`款式:${data.style}`);
     if (data.note) lines.push(`備註:${data.note}`);
-    if (data.originalPrice !== null && data.originalPrice !== undefined) {
-      lines.push(`原價:${data.originalPrice}`);
-    }
-    const storeLines = Object.keys(DUTY_FREE_STORES)
-      .filter((key) => data[key] !== null && data[key] !== undefined)
-      .map((key) => `${DUTY_FREE_STORES[key]}:${data[key]}`);
+
+    const filledStores = Object.keys(DUTY_FREE_STORES).filter((key) => data[key] !== null && data[key] !== undefined);
+    const storeLines = filledStores.map((key) => `${DUTY_FREE_STORES[key]}:${data[key]}`);
     lines.push(`各店售價:${storeLines.join('、')}`);
     lines.push(`最低售價:${data.lowestPrice}(${data.lowestStore},匯率 1美金:${data.fxRate})`);
-    if (data.discount1 !== null && data.discount1 !== undefined) lines.push(`折扣1(金卡):${data.discount1}%`);
-    if (data.discount2 !== null && data.discount2 !== undefined) lines.push(`折扣2(返點):${data.discount2}%`);
+    if (isPhysical) {
+      if (data.discount1 !== null && data.discount1 !== undefined) lines.push(`折扣1(金卡):${data.discount1}%`);
+      if (data.discount2 !== null && data.discount2 !== undefined) lines.push(`折扣2(返點):${data.discount2}%`);
+    }
     if (data.weight !== null && data.weight !== undefined) {
       lines.push(`重量:${data.weight} kg`);
     } else {
@@ -739,11 +715,21 @@ function buildQuoteMessage(flow, data, result) {
     lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
     lines.push(`利潤:${data.profit}`);
     lines.push('——————————');
-    lines.push(`💰 建議報價:${result.total}`);
-    lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
-    if (result.originalQuote !== null && result.originalQuote !== undefined) {
-      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
-    }
+
+    // 每一間有填售價的店都各自算一次報價,由低到高排序,方便缺貨時知道改用哪家的價格
+    const sortedStores = [...filledStores].sort((a, b) => data[a] - data[b]);
+    sortedStores.forEach((key) => {
+      const storePrice = data[key];
+      const baseCost = Math.round(storePrice * d1 * d2 * data.fxRate);
+      const totalCost = baseCost + result.shippingCost;
+      const quote = ceilTo10(totalCost + data.profit);
+      lines.push(DUTY_FREE_STORES[key]);
+      lines.push(`💰 建議報價:${quote}`);
+      lines.push(`💰 商品總成本：${baseCost}+${result.shippingCost}=${totalCost}`);
+      lines.push('');
+    });
+    if (lines[lines.length - 1] === '') lines.pop();
+
     return lines.join('\n');
   }
 
