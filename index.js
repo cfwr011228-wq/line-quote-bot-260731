@@ -158,6 +158,16 @@ const PEER_KRW_FIELDS = [
 
 const DUTY_FREE_STORES = { lotte: '樂天', shinsegae: '新世界', emart: '愛寶客', shilla: '新羅', hyundai: '現代' };
 
+// 每間店各自一組「售價」+「連結」欄位,連結選填,填了的話那間店的售價會變成可以點的連結
+function buildDutyFreeStoreFields() {
+  const fields = [];
+  Object.keys(DUTY_FREE_STORES).forEach((key) => {
+    fields.push({ label: `${DUTY_FREE_STORES[key]}售價`, key, type: 'number' });
+    fields.push({ label: `${DUTY_FREE_STORES[key]}連結`, key: `${key}Link`, type: 'text' });
+  });
+  return fields;
+}
+
 const DUTY_FREE_ONLINE_FIELDS = [
   { label: '品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
@@ -165,12 +175,7 @@ const DUTY_FREE_ONLINE_FIELDS = [
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '樂天售價', key: 'lotte', type: 'number' },
-  { label: '新世界售價', key: 'shinsegae', type: 'number' },
-  { label: '愛寶客售價', key: 'emart', type: 'number' },
-  { label: '新羅售價', key: 'shilla', type: 'number' },
-  { label: '現代售價', key: 'hyundai', type: 'number' },
+  ...buildDutyFreeStoreFields(),
   { label: '重量(kg)', key: 'weight', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
@@ -182,12 +187,7 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '樂天售價', key: 'lotte', type: 'number' },
-  { label: '新世界售價', key: 'shinsegae', type: 'number' },
-  { label: '愛寶客售價', key: 'emart', type: 'number' },
-  { label: '新羅售價', key: 'shilla', type: 'number' },
-  { label: '現代售價', key: 'hyundai', type: 'number' },
+  ...buildDutyFreeStoreFields(),
   { label: '折扣1(金卡%)', key: 'discount1', type: 'number' },
   { label: '折扣2(返點%)', key: 'discount2', type: 'number' },
   { label: '重量(kg)', key: 'weight', type: 'number' },
@@ -195,12 +195,12 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
 ];
 
 const DUTY_FREE_ONLINE_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️連結/顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️各店連結:選填,填了那間店的售價就會變成可以點的連結\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
   DUTY_FREE_ONLINE_FIELDS
 );
 
 const DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️連結/顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️折扣1/折扣2:選填(輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️各店連結:選填,填了那間店的售價就會變成可以點的連結\n⚠️折扣1/折扣2:選填(輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
   DUTY_FREE_PHYSICAL_FIELDS
 );
 
@@ -208,12 +208,12 @@ const KOREA_KRW_FIELDS = [
   { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
   { label: '品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '連結', key: 'link', type: 'text' },
   { label: '顏色', key: 'color', type: 'text' },
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
   { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '連結', key: 'link', type: 'text' },
   { label: '售價', key: 'price', type: 'number', required: true }, // 不做四捨五入,直接照打的存
   { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
@@ -697,7 +697,6 @@ function buildQuoteMessage(flow, data, result) {
     const d2 = data.discount2 ? 1 - data.discount2 / 100 : 1;
 
     const lines = [title, `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.link) lines.push(`連結:${data.link}`);
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
     if (data.style) lines.push(`款式:${data.style}`);
