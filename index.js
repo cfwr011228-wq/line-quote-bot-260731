@@ -460,6 +460,19 @@ function newSession(flow) {
   return { flow, stepIndex: 0, data: {} };
 }
 
+// 依流程判斷要用哪個國旗表情符號
+function flagForFlow(flow, data) {
+  if (flow === 'koreaKrw' || flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical' || flow === 'peerKrw') return '🇰🇷';
+  if (flow === 'peerTwd') return '🇹🇼';
+  if (flow === 'general' && data.currency && CURRENCY_META[data.currency]) return CURRENCY_META[data.currency].emoji;
+  return '';
+}
+
+// 簡短摘要:國旗 品牌 / 商品名稱 / $報價,報價完成、改報價、改利潤之後都會附上這個
+function buildShortSummary(flag, brand, name, total) {
+  return `${flag} ${brand}\n${name}\n$${total}`.trim();
+}
+
 function stepPrompt(step, session) {
   return step.promptFn ? step.promptFn(session) : step.prompt;
 }
@@ -536,9 +549,9 @@ async function handleEvent(event) {
     sessions.set(userId, session);
     const meta = CURRENCY_META['韓幣'];
     const liveRate = await fetchFxRate(meta.code);
-    const usedRate = round2(liveRate - 2);
+    const usedRate = round2(liveRate - 4);
     session.data.fxRate = usedRate;
-    const infoMsg = `今日參考匯率：台幣 1:${liveRate}（韓國）\n本次報價使用匯率：1:${usedRate}（即時匯率−2）`;
+    const infoMsg = `今日參考匯率：台幣 1:${liveRate}（韓國）\n本次報價使用匯率：1:${usedRate}（即時匯率−4）`;
     return client.replyMessage(event.replyToken, startFlowMessages(KOREA_KRW_STEPS, session, [infoMsg]));
   }
 
@@ -596,7 +609,11 @@ async function handleEvent(event) {
       const result = await submitOverride(session.field, productId, value);
       const lines = [`✅ 已更新 編號 ${productId} 的${label}`, `新${label}:${value}`];
       if (result.newTotal !== undefined) lines.push(`目前報價:${result.newTotal}`);
-      return client.replyMessage(event.replyToken, buildStepMessage(lines.join('\n')));
+      const messages = [buildStepMessage(lines.join('\n'))];
+      if (result.brand && result.name && result.newTotal !== undefined) {
+        messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal)));
+      }
+      return client.replyMessage(event.replyToken, messages);
     } catch (err) {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
     }
@@ -696,6 +713,8 @@ async function handleEvent(event) {
     const finalFlow = session.flow;
     sessions.delete(userId);
     const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, result))];
+    const flag = flagForFlow(finalFlow, finalData);
+    messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, result.total)));
     return client.replyMessage(event.replyToken, messages);
   } catch (err) {
     return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
