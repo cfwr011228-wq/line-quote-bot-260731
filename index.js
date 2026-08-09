@@ -902,7 +902,7 @@ function costLine(result) {
 function buildQuoteMessage(flow, data, result) {
   if (flow === 'order') {
     const lines = [
-      '✅ 訂單新增完成',
+      '✅ 訂購表單新增完成',
       `訂單編號:${result.orderId}`,
       `客人:${data.customerName}`,
       `商品編號:${data.productId}`,
