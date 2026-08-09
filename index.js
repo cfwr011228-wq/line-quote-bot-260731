@@ -852,6 +852,7 @@ async function handleEvent(event) {
   }
 
 
+  const steps = FLOWS[session.flow];
   const currentStep = steps[session.stepIndex];
 
   if (currentStep.type === 'image') {
