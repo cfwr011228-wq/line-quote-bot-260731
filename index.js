@@ -162,6 +162,24 @@ const PEER_KRW_FIELDS = [
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
+const PEER_JPY_FIELDS = [
+  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
+  { label: '商品品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '連結', key: 'link', type: 'text' },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
+  { label: '售價', key: 'price', type: 'price', required: true },
+  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', required: true },
+  { label: '重量（kg）', key: 'weight', type: 'number', required: true },
+  { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
+  { label: '同行匯率', key: 'peerRate', type: 'number', default: 0.21 }, // 1日幣=X台幣方向,跟韓幣相反
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
 const DUTY_FREE_STORES = { lotte: '樂天', shinsegae: '新世界', emart: '愛寶客', shilla: '新羅', hyundai: '現代' };
 
 // 每間店各自一組「售價」+「連結」欄位,連結選填,填了的話那間店的售價會變成可以點的連結
@@ -270,6 +288,10 @@ const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
 const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
   '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
   PEER_KRW_FIELDS
+);
+const PEER_JPY_TEMPLATE_PROMPT = buildTemplateText(
+  '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
+  PEER_JPY_FIELDS
 );
 
 // 解析使用者傳回的整段文字,依照每一行「標籤：值」對應欄位
@@ -381,6 +403,11 @@ const PEER_KRW_STEPS = [
   { key: 'peerKrwFields', type: 'template', fields: PEER_KRW_FIELDS, prompt: PEER_KRW_TEMPLATE_PROMPT },
 ];
 
+const PEER_JPY_STEPS = [
+  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key: 'peerJpyFields', type: 'template', fields: PEER_JPY_FIELDS, prompt: PEER_JPY_TEMPLATE_PROMPT },
+];
+
 const KOREA_KRW_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
   {
@@ -445,6 +472,7 @@ const FLOWS = {
   general: GENERAL_STEPS,
   peerTwd: PEER_TWD_STEPS,
   peerKrw: PEER_KRW_STEPS,
+  peerJpy: PEER_JPY_STEPS,
   koreaKrw: KOREA_KRW_STEPS,
   dutyFreeOnline: DUTY_FREE_ONLINE_STEPS,
   dutyFreePhysical: DUTY_FREE_PHYSICAL_STEPS,
@@ -470,18 +498,22 @@ function newSession(flow) {
 function flagForFlow(flow, data) {
   if (flow === 'koreaKrw' || flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical' || flow === 'peerKrw') return '🇰🇷';
   if (flow === 'peerTwd') return '🇹🇼';
+  if (flow === 'peerJpy') return '🇯🇵';
   if (flow === 'general' && data.currency && CURRENCY_META[data.currency]) return CURRENCY_META[data.currency].emoji;
   return '';
 }
 
 // 簡短摘要:國旗品牌 / 商品名稱 / 顏色尺寸款式(有才顯示) / $報價,報價完成、改報價、改利潤之後都會附上這個
 function buildShortSummary(flag, brand, name, total, color, size, style) {
-  const lines = [`${flag}${brand}`, name, ''];
-  if (color) lines.push(`顏色｜${color}`);
-  if (size) lines.push(`尺寸｜${size}`);
-  if (style) lines.push(`款式｜${style}`);
-  lines.push('');
-  lines.push(`$${total}`);
+  const lines = [`${flag}${brand}`, name];
+  const details = [];
+  if (color) details.push(`顏色｜${color}`);
+  if (size) details.push(`尺寸｜${size}`);
+  if (style) details.push(`款式｜${style}`);
+  if (details.length > 0) {
+    lines.push('', ...details);
+  }
+  lines.push('', `$${total}`);
   return lines.join('\n');
 }
 
@@ -551,6 +583,7 @@ async function handleEvent(event) {
         quickReplyItems: [
           { label: '🇹🇼 台幣報價', text: '台幣報價' },
           { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
+          { label: '🇯🇵 日幣報價', text: '日幣報價' },
         ],
       })
     );
@@ -632,17 +665,19 @@ async function handleEvent(event) {
   }
 
   if (session.flow === 'peerSelect') {
-    if (text === '台幣報價' || text === '韓幣報價') {
-      session.flow = text === '台幣報價' ? 'peerTwd' : 'peerKrw';
+    const flowMap = { 台幣報價: 'peerTwd', 韓幣報價: 'peerKrw', 日幣報價: 'peerJpy' };
+    if (flowMap[text]) {
+      session.flow = flowMap[text];
       session.stepIndex = 0;
       return client.replyMessage(event.replyToken, startFlowMessages(FLOWS[session.flow], session));
     }
     return client.replyMessage(
       event.replyToken,
-      buildStepMessage('請點選下方選單:台幣報價 或 韓幣報價', {
+      buildStepMessage('請點選下方選單:台幣報價／韓幣報價／日幣報價', {
         quickReplyItems: [
           { label: '🇹🇼 台幣報價', text: '台幣報價' },
           { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
+          { label: '🇯🇵 日幣報價', text: '日幣報價' },
         ],
       })
     );
@@ -893,8 +928,9 @@ function buildQuoteMessage(flow, data, result) {
     return lines.join('\n');
   }
 
+  const peerCurrencyLabel = flow === 'peerJpy' ? '日幣' : '韓幣';
   const lines = [
-    '✅ 同行報價完成(韓幣)',
+    `✅ 同行報價完成(${peerCurrencyLabel})`,
     `編號:${result.productId}`,
     `同行:${data.peerName}`,
     `品牌:${data.brand}`,
