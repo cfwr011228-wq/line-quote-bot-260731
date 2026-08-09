@@ -358,11 +358,30 @@ function parseTemplate(text, fields, dynamicDefaults) {
   return data;
 }
 
-// 解析「新增訂單」整段文字:客人姓名 + 付款方式(選填)為「標籤：值」,
-// 商品編號/數量可以填很多行,格式為「商品編號/數量」,例如 202608090016/2
-function parseOrderTemplate(text) {
-  const itemPattern = /^([A-Za-z0-9]+)\s*[\/／]\s*(\d+(\.\d+)?)$/;
+// 解析單一商品行,格式:商品編號/數量,或商品編號/數量/顏色/尺寸/款式
+// 顏色/尺寸/款式可以整段不填,也可以中間留空段(用連續的斜線代表跳過),例如:
+//   202608090016/2            -> 只有編號跟數量
+//   202608090016/2//XL/       -> 尺寸XL,顏色、款式留空
+//   202608090016/2/紅//       -> 顏色紅,尺寸、款式留空
+function parseOrderItemLine(line) {
+  const parts = line.split(/[\/／]/).map((s) => s.trim());
+  if (parts.length < 2) return null;
+  const productId = parts[0];
+  if (!/^[A-Za-z0-9]+$/.test(productId)) return null;
+  if (!/^\d+(\.\d+)?$/.test(parts[1])) return null;
 
+  return {
+    productId,
+    quantity: Number(parts[1]),
+    color: parts[2] ? parts[2] : null,
+    size: parts[3] ? parts[3] : null,
+    style: parts[4] ? parts[4] : null,
+  };
+}
+
+// 解析「新增訂單」整段文字:客人姓名 + 付款方式(選填)為「標籤：值」,
+// 商品編號/數量/顏色/尺寸/款式可以填很多行,顏色/尺寸/款式選填,例如 202608090016/2/紅/XL/長版
+function parseOrderTemplate(text) {
   let customerName = null;
   let paymentMethod = null;
   const items = [];
@@ -383,17 +402,17 @@ function parseOrderTemplate(text) {
         if (value) paymentMethod = value;
         return;
       }
-      // 「商品編號/數量：」這種標題行,如果值剛好也是「編號/數量」格式就一併收下,否則當標題略過
+      // 「商品編號/數量/顏色/尺寸/款式：」這種標題行,如果值剛好也是商品行格式就一併收下,否則當標題略過
       if (value) {
-        const m = value.match(itemPattern);
-        if (m) items.push({ productId: m[1], quantity: Number(m[2]) });
+        const item = parseOrderItemLine(value);
+        if (item) items.push(item);
       }
       return;
     }
 
-    // 沒有冒號的行,檢查是不是「商品編號/數量」
-    const m = line.match(itemPattern);
-    if (m) items.push({ productId: m[1], quantity: Number(m[2]) });
+    // 沒有冒號的行,檢查是不是商品行
+    const item = parseOrderItemLine(line);
+    if (item) items.push(item);
   });
 
   const missing = [];
@@ -499,9 +518,13 @@ const ORDER_TEMPLATE_PROMPT =
   '請複製整段填寫、回傳\n' +
   '⚠️付款方式:選填\n' +
   '⚠️商品編號請照商品總表上的編號填,系統會自動帶入品牌/名稱/單價\n' +
-  '⚠️商品編號/數量可以填很多筆,一行一組,格式:商品編號/數量\n\n' +
+  '⚠️可以填很多筆,一行一組,格式:商品編號/數量/顏色/尺寸/款式\n' +
+  '⚠️顏色/尺寸/款式選填,不需要可以留空或整個不寫,例如:\n' +
+  '　202608090016/2(沒有顏色尺寸款式)\n' +
+  '　202608090016/2/紅/XL/長版(都有填)\n' +
+  '　202608090016/2//XL/(只填尺寸)\n\n' +
   '客人姓名：\n' +
-  '商品編號/數量：\n' +
+  '商品編號/數量/顏色/尺寸/款式：\n' +
   '付款方式：';
 
 const ORDER_STEPS = [
