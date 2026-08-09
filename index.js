@@ -123,7 +123,7 @@ const GENERAL_FIELDS = [
   { label: '顏色', key: 'color', type: 'text' },
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
-  { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表親自帶回,不加運費
+  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親自帶回,不加運費
   { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
@@ -136,7 +136,7 @@ const PEER_TWD_FIELDS = [
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表已含運費
+  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表已含運費
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
@@ -149,8 +149,8 @@ const PEER_KRW_FIELDS = [
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
   { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '買手費(%)', key: 'buyerFeePercent', type: 'number', required: true },
-  { label: '重量(kg)', key: 'weight', type: 'number', required: true },
+  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', required: true },
+  { label: '重量（kg）', key: 'weight', type: 'number', required: true },
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
@@ -176,7 +176,7 @@ const DUTY_FREE_ONLINE_FIELDS = [
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
   ...buildDutyFreeStoreFields(),
-  { label: '重量(kg)', key: 'weight', type: 'number' },
+  { label: '重量（kg）', key: 'weight', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
@@ -188,19 +188,19 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
   { label: '款式', key: 'style', type: 'text' },
   { label: '備註', key: 'note', type: 'text' },
   ...buildDutyFreeStoreFields(),
-  { label: '折扣1(金卡%)', key: 'discount1', type: 'number' },
-  { label: '折扣2(返點%)', key: 'discount2', type: 'number' },
-  { label: '重量(kg)', key: 'weight', type: 'number' },
+  { label: '折扣1（金卡%）', key: 'discount1', type: 'number' },
+  { label: '折扣2（返點%）', key: 'discount2', type: 'number' },
+  { label: '重量（kg）', key: 'weight', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
 const DUTY_FREE_ONLINE_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️各店連結:選填,填了那間店的售價就會變成可以點的連結\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️重量：選填，未填則為親飛帶回（不加運費）',
   DUTY_FREE_ONLINE_FIELDS
 );
 
 const DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式/備註:選填\n⚠️5間店的售價至少填一間,系統會自動抓最低價計算\n⚠️各店連結:選填,填了那間店的售價就會變成可以點的連結\n⚠️折扣1/折扣2:選填(輸入百分比數字,例如5代表95折)\n⚠️重量:選填,未填則為親飛帶回(不加運費)',
+  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）\n⚠️重量：選填，未填則為親飛帶回（不加運費）',
   DUTY_FREE_PHYSICAL_FIELDS
 );
 
@@ -215,12 +215,12 @@ const KOREA_KRW_FIELDS = [
   { label: '備註', key: 'note', type: 'text' },
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'number', required: true }, // 不做四捨五入,直接照打的存
-  { label: '重量(kg)', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
+  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
 const KOREA_KRW_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️購買地點:選填,不填則帶入品牌\n⚠️連結/顏色/尺寸/款式/備註/原價:選填\n⚠️重量:選填,未填則為親飛帶回(不加運費)\n⚠️匯率已自動帶入,不用填',
+  '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已自動帶入，不用填',
   KOREA_KRW_FIELDS
 );
 
@@ -234,17 +234,17 @@ function buildGeneralTemplatePrompt(session) {
     f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
   );
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️原價/顏色/尺寸/款式:選填\n⚠️重量:選填,未填則為親自帶回(不加運費)\n⚠️匯率已帶入今日參考匯率,如需使用別的匯率請自行修改',
+    '請複製整段填寫、回傳\n⚠️原價／顏色／尺寸／款式：選填\n⚠️重量：選填，未填則為親自帶回（不加運費）\n⚠️匯率已帶入今日參考匯率，如需使用別的匯率請自行修改',
     fieldsWithDynamicDefault
   );
 }
 
 const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式:選填\n⚠️重量:選填,未填則為已含運費',
+  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式：選填\n⚠️重量：選填，未填則為已含運費',
   PEER_TWD_FIELDS
 );
 const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色/尺寸/款式:選填',
+  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式：選填',
   PEER_KRW_FIELDS
 );
 
@@ -450,6 +450,21 @@ function advance(steps, session) {
   return null;
 }
 
+// 開始一個流程,把「額外訊息(例如匯率)+第一步(通常是傳圖片)+如果緊接著是範本步驟就一次帶出來」
+// 一次回傳,這樣使用者傳圖片、等上傳的空檔就能先準備好範本內容,不用等圖片傳完才看到格式。
+function startFlowMessages(steps, session, infoMessages) {
+  const firstStep = advance(steps, session);
+  const messages = (infoMessages || []).map((t) => buildStepMessage(t));
+  messages.push(buildStepMessage(stepPrompt(firstStep, session), firstStep));
+
+  const nextStep = steps[session.stepIndex + 1];
+  if (firstStep.type === 'image' && nextStep && nextStep.type === 'template') {
+    messages.push(buildStepMessage(stepPrompt(nextStep, session), nextStep));
+    session.templatePreShown = true;
+  }
+  return messages;
+}
+
 async function handleEvent(event) {
   if (event.type !== 'message') return;
   const userId = event.source.userId;
@@ -487,9 +502,8 @@ async function handleEvent(event) {
     const liveRate = await fetchFxRate(meta.code);
     const usedRate = round2(liveRate - 2);
     session.data.fxRate = usedRate;
-    const infoMsg = `今日參考匯率:台幣 1:${liveRate}(韓國)\n本次報價使用匯率:1:${usedRate}(即時匯率−2)`;
-    const step = advance(KOREA_KRW_STEPS, session);
-    return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
+    const infoMsg = `今日參考匯率：台幣 1:${liveRate}（韓國）\n本次報價使用匯率：1:${usedRate}（即時匯率−2）`;
+    return client.replyMessage(event.replyToken, startFlowMessages(KOREA_KRW_STEPS, session, [infoMsg]));
   }
 
   if (text === '線上免稅店' && !sessions.has(userId)) {
@@ -498,9 +512,8 @@ async function handleEvent(event) {
     const liveRate = await fetchUsdToTwdRate();
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
-    const infoMsg = `今日參考匯率:1美金:${liveRate}台幣\n本次報價使用匯率:1美金:${usedRate}台幣(即時匯率+1)`;
-    const step = advance(DUTY_FREE_ONLINE_STEPS, session);
-    return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
+    const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
+    return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_ONLINE_STEPS, session, [infoMsg]));
   }
 
   if (text === '實體免稅店' && !sessions.has(userId)) {
@@ -509,9 +522,8 @@ async function handleEvent(event) {
     const liveRate = await fetchUsdToTwdRate();
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
-    const infoMsg = `今日參考匯率:1美金:${liveRate}台幣\n本次報價使用匯率:1美金:${usedRate}台幣(即時匯率+1)`;
-    const step = advance(DUTY_FREE_PHYSICAL_STEPS, session);
-    return client.replyMessage(event.replyToken, [buildStepMessage(infoMsg), buildStepMessage(stepPrompt(step, session), step)]);
+    const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
+    return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_PHYSICAL_STEPS, session, [infoMsg]));
   }
 
   if (text === '改報價' || text === '改利潤') {
@@ -558,8 +570,7 @@ async function handleEvent(event) {
     if (text === '台幣報價' || text === '韓幣報價') {
       session.flow = text === '台幣報價' ? 'peerTwd' : 'peerKrw';
       session.stepIndex = 0;
-      const step = advance(FLOWS[session.flow], session);
-      return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(step, session), step));
+      return client.replyMessage(event.replyToken, startFlowMessages(FLOWS[session.flow], session));
     }
     return client.replyMessage(
       event.replyToken,
@@ -632,7 +643,14 @@ async function handleEvent(event) {
     const nextStep = advance(steps, session);
 
     if (nextStep) {
-      const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(stepPrompt(nextStep, session), nextStep)];
+      let promptMessage;
+      if (currentStep.type === 'image' && session.templatePreShown && nextStep.type === 'template') {
+        promptMessage = buildStepMessage('📷 圖片收到,請貼上你填好的資料');
+        session.templatePreShown = false;
+      } else {
+        promptMessage = buildStepMessage(stepPrompt(nextStep, session), nextStep);
+      }
+      const messages = [...extraMessages.map((t) => buildStepMessage(t)), promptMessage];
       return client.replyMessage(event.replyToken, messages);
     }
 
