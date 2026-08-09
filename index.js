@@ -115,19 +115,6 @@ async function fetchUsdToTwdRate() {
 // type: 'text' | 'number' | 'price'(number 再四捨五入到十位數)
 // required: 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
 
-const GENERAL_FIELDS = [
-  { label: '商品品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親自帶回,不加運費
-  { label: '匯率', key: 'fxRate', type: 'number' },
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
-];
-
 const PEER_TWD_FIELDS = [
   { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
@@ -300,16 +287,6 @@ function buildTemplateText(instruction, fields) {
   return `${instruction}\n\n${lines.join('\n')}`;
 }
 
-function buildGeneralTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = GENERAL_FIELDS.map((f) =>
-    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
-  );
-  return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️原價／顏色／尺寸／款式：選填\n⚠️重量：選填，未填則為親自帶回（不加運費）\n⚠️匯率已帶入今日參考匯率，如需使用別的匯率請自行修改',
-    fieldsWithDynamicDefault
-  );
-}
-
 const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
   '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為已含運費',
   PEER_TWD_FIELDS
@@ -383,44 +360,6 @@ function parseTemplate(text, fields, dynamicDefaults) {
 
 // ------------------- 流程定義 -------------------
 
-const GENERAL_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  {
-    key: 'currency',
-    quickReplyItems: Object.entries(CURRENCY_META).map(([name, meta]) => ({
-      label: `${meta.emoji} ${name}`,
-      text: name,
-    })),
-    prompt: '請選擇幣別',
-    parse: (text) => {
-      if (!CURRENCY_META[text]) throw new Error('請點選下方選單的幣別');
-      return text;
-    },
-    // 選完幣別後,額外查詢並回覆今日匯率
-    after: async (session) => {
-      const meta = CURRENCY_META[session.data.currency];
-      const rate = await fetchFxRate(meta.code);
-      session.data.fxRate = rate;
-      return `今日參考匯率:台幣 1:${rate}(${meta.country},僅供參考)`;
-    },
-  },
-  {
-    key: 'generalFields',
-    type: 'template',
-    fields: GENERAL_FIELDS,
-    promptFn: buildGeneralTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
-  },
-  {
-    key: 'category',
-    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
-    prompt: '請選擇商品類別',
-    parse: (text) => {
-      if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
-      return text;
-    },
-  },
-];
 
 const PEER_TWD_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
@@ -537,7 +476,6 @@ const ORDER_STEPS = [
 ];
 
 const FLOWS = {
-  general: GENERAL_STEPS,
   peerTwd: PEER_TWD_STEPS,
   peerKrw: PEER_KRW_STEPS,
   peerJpy: PEER_JPY_STEPS,
@@ -570,7 +508,6 @@ function flagForFlow(flow, data) {
   if (flow === 'peerTwd') return '🇹🇼';
   if (flow === 'peerJpy') return '🇯🇵';
   if (flow === 'usa') return '🇺🇸';
-  if (flow === 'general' && data.currency && CURRENCY_META[data.currency]) return CURRENCY_META[data.currency].emoji;
   return '';
 }
 
@@ -636,14 +573,7 @@ async function handleEvent(event) {
 
   if (text === '取消') {
     sessions.delete(userId);
-    return client.replyMessage(event.replyToken, buildStepMessage('已取消本次流程。輸入「一般報價」或「同行報價」可重新開始。'));
-  }
-
-  if (text === '一般報價') {
-    const session = newSession('general');
-    sessions.set(userId, session);
-    const step = advance(GENERAL_STEPS, session);
-    return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(step, session), step));
+    return client.replyMessage(event.replyToken, buildStepMessage('已取消本次流程。輸入「同行報價」可重新開始。'));
   }
 
   if (text === '同行報價') {
@@ -660,7 +590,7 @@ async function handleEvent(event) {
     );
   }
 
-  if (text === '韓國代購' && !sessions.has(userId)) {
+  if (text === '韓國代購') {
     const session = newSession('koreaKrw');
     sessions.set(userId, session);
     const meta = CURRENCY_META['韓幣'];
@@ -671,7 +601,7 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(KOREA_KRW_STEPS, session, [infoMsg]));
   }
 
-  if (text === '線上免稅店' && !sessions.has(userId)) {
+  if (text === '線上免稅店') {
     const session = newSession('dutyFreeOnline');
     sessions.set(userId, session);
     const liveRate = await fetchUsdToTwdRate();
@@ -681,7 +611,7 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_ONLINE_STEPS, session, [infoMsg]));
   }
 
-  if (text === '實體免稅店' && !sessions.has(userId)) {
+  if (text === '實體免稅店') {
     const session = newSession('dutyFreePhysical');
     sessions.set(userId, session);
     const liveRate = await fetchUsdToTwdRate();
@@ -691,7 +621,7 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_PHYSICAL_STEPS, session, [infoMsg]));
   }
 
-  if (text === '美國代購' && !sessions.has(userId)) {
+  if (text === '美國代購') {
     const session = newSession('usa');
     sessions.set(userId, session);
     const liveRate = await fetchUsdToTwdRate();
@@ -701,7 +631,7 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(USA_STEPS, session, [infoMsg]));
   }
 
-  if (text === '新增訂單' && !sessions.has(userId)) {
+  if (text === '新增訂單') {
     const session = newSession('order');
     sessions.set(userId, session);
     const step = advance(ORDER_STEPS, session);
@@ -715,7 +645,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,輸入「新增訂單」建立客人訂單,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,輸入「新增訂單」建立客人訂單,或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -1018,25 +948,6 @@ function buildQuoteMessage(flow, data, result) {
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
       lines.push(`💰 原價報價(參考):${result.originalQuote}`);
     }
-    return lines.join('\n');
-  }
-
-  if (flow === 'general') {
-    const lines = ['✅ 報價完成', `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.originalPrice !== null && data.originalPrice !== undefined) {
-      lines.push(`原價:${data.originalPrice}`);
-    }
-    lines.push(`售價:${data.price}(匯率 1:${data.fxRate})`);
-    if (data.weight !== null && data.weight !== undefined) {
-      lines.push(`重量:${data.weight} kg`);
-    } else {
-      lines.push('重量:未填(親自帶回)');
-    }
-    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
-    lines.push(`利潤:${data.profit}`);
-    lines.push('——————————');
-    lines.push(`💰 建議報價:${result.total}`);
-    lines.push(costLine(result));
     return lines.join('\n');
   }
 
