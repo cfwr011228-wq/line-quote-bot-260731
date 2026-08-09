@@ -508,6 +508,34 @@ const DUTY_FREE_PHYSICAL_STEPS = [
   },
 ];
 
+const ORDER_FIELDS = [
+  { label: '客人姓名', key: 'customerName', type: 'text', required: true },
+  { label: '商品編號', key: 'productId', type: 'text', required: true },
+  { label: '數量', key: 'quantity', type: 'number', required: true },
+  { label: '付款方式', key: 'paymentMethod', type: 'text' },
+];
+
+const ORDER_TEMPLATE_PROMPT = buildTemplateText(
+  '請複製整段填寫、回傳\n⚠️付款方式:選填\n⚠️商品編號請照商品總表上的編號填,系統會自動帶入品牌/名稱/單價',
+  ORDER_FIELDS
+);
+
+const ORDER_STEPS = [
+  { key: 'orderFields', type: 'template', fields: ORDER_FIELDS, prompt: ORDER_TEMPLATE_PROMPT },
+  {
+    key: 'received',
+    quickReplyItems: [
+      { label: '✅ 已收款', text: '已收款' },
+      { label: '⏳ 未收款', text: '未收款' },
+    ],
+    prompt: '請問已經收款了嗎?',
+    parse: (text) => {
+      if (text !== '已收款' && text !== '未收款') throw new Error('請點選下方選單');
+      return text === '已收款';
+    },
+  },
+];
+
 const FLOWS = {
   general: GENERAL_STEPS,
   peerTwd: PEER_TWD_STEPS,
@@ -517,6 +545,7 @@ const FLOWS = {
   usa: USA_STEPS,
   dutyFreeOnline: DUTY_FREE_ONLINE_STEPS,
   dutyFreePhysical: DUTY_FREE_PHYSICAL_STEPS,
+  order: ORDER_STEPS,
 };
 
 // ------------------- LINE webhook -------------------
@@ -672,6 +701,13 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(USA_STEPS, session, [infoMsg]));
   }
 
+  if (text === '新增訂單' && !sessions.has(userId)) {
+    const session = newSession('order');
+    sessions.set(userId, session);
+    const step = advance(ORDER_STEPS, session);
+    return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(step, session), step));
+  }
+
   if (text === '改報價' || text === '改利潤') {
     sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
@@ -679,7 +715,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,輸入「新增訂單」建立客人訂單,或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -812,8 +848,10 @@ async function handleEvent(event) {
     const finalFlow = session.flow;
     sessions.delete(userId);
     const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, result))];
-    const flag = flagForFlow(finalFlow, finalData);
-    messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, result.total, finalData.color, finalData.size, finalData.style)));
+    if (finalFlow !== 'order') {
+      const flag = flagForFlow(finalFlow, finalData);
+      messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, result.total, finalData.color, finalData.size, finalData.style)));
+    }
     return client.replyMessage(event.replyToken, messages);
   } catch (err) {
     return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
@@ -862,6 +900,27 @@ function costLine(result) {
 }
 
 function buildQuoteMessage(flow, data, result) {
+  if (flow === 'order') {
+    const lines = [
+      '✅ 訂單新增完成',
+      `訂單編號:${result.orderId}`,
+      `客人:${data.customerName}`,
+      `商品編號:${data.productId}`,
+      `品牌:${result.brand}`,
+      `名稱:${result.name}`,
+    ];
+    if (result.color) lines.push(`顏色:${result.color}`);
+    if (result.size) lines.push(`尺寸:${result.size}`);
+    if (result.style) lines.push(`款式:${result.style}`);
+    lines.push(`數量:${data.quantity}`);
+    lines.push(`單價:${result.unitPrice}`);
+    if (data.paymentMethod) lines.push(`付款方式:${data.paymentMethod}`);
+    lines.push(`已收款:${data.received ? '是' : '否'}`);
+    lines.push('——————————');
+    lines.push(`💰 總金額:${result.total}`);
+    return lines.join('\n');
+  }
+
   if (flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical') {
     const isPhysical = flow === 'dutyFreePhysical';
     const title = isPhysical ? '✅ 免稅店實體報價完成' : '✅ 免稅店線上報價完成';
