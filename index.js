@@ -177,6 +177,7 @@ const DUTY_FREE_ONLINE_FIELDS = [
   { label: '備註', key: 'note', type: 'text' },
   ...buildDutyFreeStoreFields(),
   { label: '重量（kg）', key: 'weight', type: 'number' },
+  { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
@@ -191,18 +192,29 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
   { label: '折扣1（金卡%）', key: 'discount1', type: 'number' },
   { label: '折扣2（返點%）', key: 'discount2', type: 'number' },
   { label: '重量（kg）', key: 'weight', type: 'number' },
+  { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
-const DUTY_FREE_ONLINE_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️重量：選填，未填則為親飛帶回（不加運費）',
-  DUTY_FREE_ONLINE_FIELDS
-);
+function buildDutyFreeOnlineTemplatePrompt(session) {
+  const fieldsWithDynamicDefault = DUTY_FREE_ONLINE_FIELDS.map((f) =>
+    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
+  );
+  return buildTemplateText(
+    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改',
+    fieldsWithDynamicDefault
+  );
+}
 
-const DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）\n⚠️重量：選填，未填則為親飛帶回（不加運費）',
-  DUTY_FREE_PHYSICAL_FIELDS
-);
+function buildDutyFreePhysicalTemplatePrompt(session) {
+  const fieldsWithDynamicDefault = DUTY_FREE_PHYSICAL_FIELDS.map((f) =>
+    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
+  );
+  return buildTemplateText(
+    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改',
+    fieldsWithDynamicDefault
+  );
+}
 
 const KOREA_KRW_FIELDS = [
   { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
@@ -216,13 +228,19 @@ const KOREA_KRW_FIELDS = [
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'number', required: true }, // 不做四捨五入,直接照打的存
   { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
+  { label: '匯率', key: 'fxRate', type: 'number' },
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
-const KOREA_KRW_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已自動帶入，不用填',
-  KOREA_KRW_FIELDS
-);
+function buildKoreaKrwTemplatePrompt(session) {
+  const fieldsWithDynamicDefault = KOREA_KRW_FIELDS.map((f) =>
+    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
+  );
+  return buildTemplateText(
+    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改',
+    fieldsWithDynamicDefault
+  );
+}
 
 function buildTemplateText(instruction, fields) {
   const lines = fields.map((f) => `${f.label}：${f.default !== undefined ? f.default : ''}`);
@@ -359,7 +377,13 @@ const PEER_KRW_STEPS = [
 
 const KOREA_KRW_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'koreaKrwFields', type: 'template', fields: KOREA_KRW_FIELDS, prompt: KOREA_KRW_TEMPLATE_PROMPT },
+  {
+    key: 'koreaKrwFields',
+    type: 'template',
+    fields: KOREA_KRW_FIELDS,
+    promptFn: buildKoreaKrwTemplatePrompt,
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+  },
   {
     key: 'category',
     quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
@@ -373,7 +397,13 @@ const KOREA_KRW_STEPS = [
 
 const DUTY_FREE_ONLINE_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'dutyFreeOnlineFields', type: 'template', fields: DUTY_FREE_ONLINE_FIELDS, prompt: DUTY_FREE_ONLINE_TEMPLATE_PROMPT },
+  {
+    key: 'dutyFreeOnlineFields',
+    type: 'template',
+    fields: DUTY_FREE_ONLINE_FIELDS,
+    promptFn: buildDutyFreeOnlineTemplatePrompt,
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+  },
   {
     key: 'category',
     quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
@@ -387,7 +417,13 @@ const DUTY_FREE_ONLINE_STEPS = [
 
 const DUTY_FREE_PHYSICAL_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'dutyFreePhysicalFields', type: 'template', fields: DUTY_FREE_PHYSICAL_FIELDS, prompt: DUTY_FREE_PHYSICAL_TEMPLATE_PROMPT },
+  {
+    key: 'dutyFreePhysicalFields',
+    type: 'template',
+    fields: DUTY_FREE_PHYSICAL_FIELDS,
+    promptFn: buildDutyFreePhysicalTemplatePrompt,
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+  },
   {
     key: 'category',
     quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
