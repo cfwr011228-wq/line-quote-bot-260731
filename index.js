@@ -468,9 +468,15 @@ function flagForFlow(flow, data) {
   return '';
 }
 
-// 簡短摘要:國旗 品牌 / 商品名稱 / $報價,報價完成、改報價、改利潤之後都會附上這個
-function buildShortSummary(flag, brand, name, total) {
-  return `${flag} ${brand}\n${name}\n$${total}`.trim();
+// 簡短摘要:國旗品牌 / 商品名稱 / 顏色尺寸款式(有才顯示) / $報價,報價完成、改報價、改利潤之後都會附上這個
+function buildShortSummary(flag, brand, name, total, color, size, style) {
+  const lines = [`${flag}${brand}`, name, ''];
+  if (color) lines.push(`顏色｜${color}`);
+  if (size) lines.push(`尺寸｜${size}`);
+  if (style) lines.push(`款式｜${style}`);
+  lines.push('');
+  lines.push(`$${total}`);
+  return lines.join('\n');
 }
 
 function stepPrompt(step, session) {
@@ -611,7 +617,7 @@ async function handleEvent(event) {
       if (result.newTotal !== undefined) lines.push(`目前報價:${result.newTotal}`);
       const messages = [buildStepMessage(lines.join('\n'))];
       if (result.brand && result.name && result.newTotal !== undefined) {
-        messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal)));
+        messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal, result.color, result.size, result.style)));
       }
       return client.replyMessage(event.replyToken, messages);
     } catch (err) {
@@ -714,7 +720,7 @@ async function handleEvent(event) {
     sessions.delete(userId);
     const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, result))];
     const flag = flagForFlow(finalFlow, finalData);
-    messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, result.total)));
+    messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, result.total, finalData.color, finalData.size, finalData.style)));
     return client.replyMessage(event.replyToken, messages);
   } catch (err) {
     return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
