@@ -266,6 +266,34 @@ function buildKoreaKrwTemplatePrompt(session) {
   );
 }
 
+const USA_FIELDS = [
+  { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
+  { label: '品牌', key: 'brand', type: 'text', required: true },
+  { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '連結', key: 'link', type: 'text' },
+  { label: '顏色', key: 'color', type: 'text' },
+  { label: '尺寸', key: 'size', type: 'text' },
+  { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
+  { label: '售價', key: 'price', type: 'number', required: true },
+  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,運費+包材費都不收
+  { label: '匯率', key: 'fxRate', type: 'number' },
+  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', default: 10 },
+  { label: '運費', key: 'shippingFee', type: 'number', default: 135 },
+  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+];
+
+function buildUsaTemplatePrompt(session) {
+  const fieldsWithDynamicDefault = USA_FIELDS.map((f) =>
+    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
+  );
+  return buildTemplateText(
+    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（運費、包材費都不收）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️運費一口價135,另加包材費30（親飛帶回不算,不用填）',
+    fieldsWithDynamicDefault
+  );
+}
+
 function buildTemplateText(instruction, fields) {
   const lines = fields.map((f) => `${f.label}：${f.default !== undefined ? f.default : ''}`);
   return `${instruction}\n\n${lines.join('\n')}`;
@@ -428,6 +456,17 @@ const KOREA_KRW_STEPS = [
   },
 ];
 
+const USA_STEPS = [
+  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  {
+    key: 'usaFields',
+    type: 'template',
+    fields: USA_FIELDS,
+    promptFn: buildUsaTemplatePrompt,
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+  },
+];
+
 const DUTY_FREE_ONLINE_STEPS = [
   { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
   {
@@ -474,6 +513,7 @@ const FLOWS = {
   peerKrw: PEER_KRW_STEPS,
   peerJpy: PEER_JPY_STEPS,
   koreaKrw: KOREA_KRW_STEPS,
+  usa: USA_STEPS,
   dutyFreeOnline: DUTY_FREE_ONLINE_STEPS,
   dutyFreePhysical: DUTY_FREE_PHYSICAL_STEPS,
 };
@@ -499,6 +539,7 @@ function flagForFlow(flow, data) {
   if (flow === 'koreaKrw' || flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical' || flow === 'peerKrw') return '🇰🇷';
   if (flow === 'peerTwd') return '🇹🇼';
   if (flow === 'peerJpy') return '🇯🇵';
+  if (flow === 'usa') return '🇺🇸';
   if (flow === 'general' && data.currency && CURRENCY_META[data.currency]) return CURRENCY_META[data.currency].emoji;
   return '';
 }
@@ -620,6 +661,16 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_PHYSICAL_STEPS, session, [infoMsg]));
   }
 
+  if (text === '美國代購' && !sessions.has(userId)) {
+    const session = newSession('usa');
+    sessions.set(userId, session);
+    const liveRate = await fetchUsdToTwdRate();
+    const usedRate = round2(liveRate + 1);
+    session.data.fxRate = usedRate;
+    const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
+    return client.replyMessage(event.replyToken, startFlowMessages(USA_STEPS, session, [infoMsg]));
+  }
+
   if (text === '改報價' || text === '改利潤') {
     sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
@@ -627,7 +678,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」「韓國代購」「線上免稅店」或「實體免稅店」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「一般報價」「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -853,6 +904,33 @@ function buildQuoteMessage(flow, data, result) {
     });
     if (lines[lines.length - 1] === '') lines.pop();
 
+    return lines.join('\n');
+  }
+
+  if (flow === 'usa') {
+    const lines = ['✅ 美國代購報價完成', `編號:${result.productId}`, `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    if (data.link) lines.push(`連結:${data.link}`);
+    if (data.color) lines.push(`顏色:${data.color}`);
+    if (data.size) lines.push(`尺寸:${data.size}`);
+    if (data.style) lines.push(`款式:${data.style}`);
+    if (data.note) lines.push(`備註:${data.note}`);
+    if (data.originalPrice !== null && data.originalPrice !== undefined) {
+      lines.push(`原價:${data.originalPrice}`);
+    }
+    lines.push(`售價:${data.price}(匯率 1美金:${data.fxRate})`);
+    lines.push(`買手費:${data.buyerFeePercent}%`);
+    if (data.weight !== null && data.weight !== undefined) {
+      lines.push(`重量:${data.weight} kg,運費:${data.shippingFee}+包材費30`);
+    } else {
+      lines.push('重量:未填(親飛帶回,運費、包材費都不收)');
+    }
+    lines.push(`利潤:${data.profit}`);
+    lines.push('——————————');
+    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
+    if (result.originalQuote !== null && result.originalQuote !== undefined) {
+      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+    }
     return lines.join('\n');
   }
 
