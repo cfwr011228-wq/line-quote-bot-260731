@@ -174,7 +174,7 @@ const PEER_JPY_FIELDS = [
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', required: true },
-  { label: '重量（kg）', key: 'weight', type: 'number', required: true },
+  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 0.21 }, // 1日幣=X台幣方向,跟韓幣相反
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
@@ -707,7 +707,7 @@ async function handleEvent(event) {
       const parsed = parseTemplate(text, currentStep.fields, dynDefaults);
       Object.assign(session.data, parsed);
       // 同行報價-台幣:重量沒填就視為已含運費,每公斤運費強制歸零
-      if (session.flow === 'peerTwd' && (session.data.weight === null || session.data.weight === undefined)) {
+      if ((session.flow === 'peerTwd' || session.flow === 'peerJpy') && (session.data.weight === null || session.data.weight === undefined)) {
         session.data.shippingRate = 0;
       }
       if (session.flow === 'koreaKrw' && !session.data.location) {
@@ -946,7 +946,11 @@ function buildQuoteMessage(flow, data, result) {
   }
   lines.push(`售價:${data.price}(同行匯率 1:${data.peerRate})`);
   lines.push(`買手費:${data.buyerFeePercent}%`);
-  lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
+  if (data.weight !== null && data.weight !== undefined) {
+    lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
+  } else {
+    lines.push('重量:未填(親飛帶回)');
+  }
   lines.push(`利潤:${data.profit}`);
   lines.push('——————————');
   lines.push(`💰 建議報價:${result.total}`);
