@@ -358,6 +358,54 @@ function parseTemplate(text, fields, dynamicDefaults) {
   return data;
 }
 
+// 解析「新增訂單」整段文字:客人姓名 + 付款方式(選填)為「標籤：值」,
+// 商品編號/數量可以填很多行,格式為「商品編號/數量」,例如 202608090016/2
+function parseOrderTemplate(text) {
+  const itemPattern = /^([A-Za-z0-9]+)\s*[\/／]\s*(\d+(\.\d+)?)$/;
+
+  let customerName = null;
+  let paymentMethod = null;
+  const items = [];
+
+  text.split('\n').forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) return;
+
+    const idx = line.search(/[:：]/);
+    if (idx !== -1) {
+      const label = line.slice(0, idx).trim();
+      const value = line.slice(idx + 1).trim();
+      if (label === '客人姓名') {
+        if (value) customerName = value;
+        return;
+      }
+      if (label === '付款方式') {
+        if (value) paymentMethod = value;
+        return;
+      }
+      // 「商品編號/數量：」這種標題行,如果值剛好也是「編號/數量」格式就一併收下,否則當標題略過
+      if (value) {
+        const m = value.match(itemPattern);
+        if (m) items.push({ productId: m[1], quantity: Number(m[2]) });
+      }
+      return;
+    }
+
+    // 沒有冒號的行,檢查是不是「商品編號/數量」
+    const m = line.match(itemPattern);
+    if (m) items.push({ productId: m[1], quantity: Number(m[2]) });
+  });
+
+  const missing = [];
+  if (!customerName) missing.push('客人姓名');
+  if (items.length === 0) missing.push('商品編號/數量(格式:商品編號/數量,一行一組)');
+  if (missing.length > 0) {
+    throw new Error(`還缺少或格式不正確:${missing.join('、')},請重新整段貼上`);
+  }
+
+  return { customerName, paymentMethod, items };
+}
+
 // ------------------- 流程定義 -------------------
 
 
@@ -447,20 +495,17 @@ const DUTY_FREE_PHYSICAL_STEPS = [
   },
 ];
 
-const ORDER_FIELDS = [
-  { label: '客人姓名', key: 'customerName', type: 'text', required: true },
-  { label: '商品編號', key: 'productId', type: 'text', required: true },
-  { label: '數量', key: 'quantity', type: 'number', required: true },
-  { label: '付款方式', key: 'paymentMethod', type: 'text' },
-];
-
-const ORDER_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️付款方式:選填\n⚠️商品編號請照商品總表上的編號填,系統會自動帶入品牌/名稱/單價',
-  ORDER_FIELDS
-);
+const ORDER_TEMPLATE_PROMPT =
+  '請複製整段填寫、回傳\n' +
+  '⚠️付款方式:選填\n' +
+  '⚠️商品編號請照商品總表上的編號填,系統會自動帶入品牌/名稱/單價\n' +
+  '⚠️商品編號/數量可以填很多筆,一行一組,格式:商品編號/數量\n\n' +
+  '客人姓名：\n' +
+  '商品編號/數量：\n' +
+  '付款方式：';
 
 const ORDER_STEPS = [
-  { key: 'orderFields', type: 'template', fields: ORDER_FIELDS, prompt: ORDER_TEMPLATE_PROMPT },
+  { key: 'orderFields', type: 'orderItems', prompt: ORDER_TEMPLATE_PROMPT },
   {
     key: 'received',
     quickReplyItems: [
@@ -825,6 +870,9 @@ async function handleEvent(event) {
       } catch (uploadErr) {
         session.data.imageBase64 = base64; // 立即上傳失敗就退回舊做法,最後一步再讓 Apps Script 處理
       }
+    } else if (currentStep.type === 'orderItems') {
+      const parsed = parseOrderTemplate(text);
+      Object.assign(session.data, parsed);
     } else if (currentStep.type === 'template') {
       const dynDefaults = currentStep.dynamicDefaultsFn ? currentStep.dynamicDefaultsFn(session) : {};
       const parsed = parseTemplate(text, currentStep.fields, dynDefaults);
@@ -972,23 +1020,24 @@ function costLine(result) {
 
 function buildQuoteMessage(flow, data, result) {
   if (flow === 'order') {
-    const lines = [
-      '✅ 訂購表單新增完成',
-      `訂單編號:${result.orderId}`,
-      `客人:${data.customerName}`,
-      `商品編號:${data.productId}`,
-      `品牌:${result.brand}`,
-      `名稱:${result.name}`,
-    ];
-    if (result.color) lines.push(`顏色:${result.color}`);
-    if (result.size) lines.push(`尺寸:${result.size}`);
-    if (result.style) lines.push(`款式:${result.style}`);
-    lines.push(`數量:${data.quantity}`);
-    lines.push(`單價:${result.unitPrice}`);
+    const lines = ['✅ 訂購表單新增完成', `客人:${data.customerName}`];
+    result.orders.forEach((o) => {
+      lines.push('——————————');
+      lines.push(`訂單編號:${o.orderId}`);
+      lines.push(`商品編號:${o.productId}`);
+      lines.push(`品牌:${o.brand}`);
+      lines.push(`名稱:${o.name}`);
+      if (o.color) lines.push(`顏色:${o.color}`);
+      if (o.size) lines.push(`尺寸:${o.size}`);
+      if (o.style) lines.push(`款式:${o.style}`);
+      lines.push(`數量:${o.quantity}`);
+      lines.push(`單價:${o.unitPrice}`);
+      lines.push(`小計:${o.total}`);
+    });
+    lines.push('——————————');
     if (data.paymentMethod) lines.push(`付款方式:${data.paymentMethod}`);
     lines.push(`已收款:${data.received ? '是' : '否'}`);
-    lines.push('——————————');
-    lines.push(`💰 總金額:${result.total}`);
+    lines.push(`💰 總金額:${result.grandTotal}`);
     return lines.join('\n');
   }
 
