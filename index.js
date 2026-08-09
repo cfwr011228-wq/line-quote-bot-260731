@@ -132,9 +132,12 @@ const PEER_TWD_FIELDS = [
   { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '連結', key: 'link', type: 'text' },
   { label: '顏色', key: 'color', type: 'text' },
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表已含運費
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
@@ -145,9 +148,12 @@ const PEER_KRW_FIELDS = [
   { label: '同行姓名', key: 'peerName', type: 'text', required: true },
   { label: '商品品牌', key: 'brand', type: 'text', required: true },
   { label: '商品名稱', key: 'name', type: 'text', required: true },
+  { label: '連結', key: 'link', type: 'text' },
   { label: '顏色', key: 'color', type: 'text' },
   { label: '尺寸', key: 'size', type: 'text' },
   { label: '款式', key: 'style', type: 'text' },
+  { label: '備註', key: 'note', type: 'text' },
+  { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', required: true },
   { label: '重量（kg）', key: 'weight', type: 'number', required: true },
@@ -258,11 +264,11 @@ function buildGeneralTemplatePrompt(session) {
 }
 
 const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式：選填\n⚠️重量：選填，未填則為已含運費',
+  '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為已含運費',
   PEER_TWD_FIELDS
 );
 const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式：選填',
+  '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
   PEER_KRW_FIELDS
 );
 
@@ -863,9 +869,14 @@ function buildQuoteMessage(flow, data, result) {
 
   if (flow === 'peerTwd') {
     const lines = ['✅ 同行報價完成(台幣)', `編號:${result.productId}`, `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    if (data.link) lines.push(`連結:${data.link}`);
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
     if (data.style) lines.push(`款式:${data.style}`);
+    if (data.note) lines.push(`備註:${data.note}`);
+    if (data.originalPrice !== null && data.originalPrice !== undefined) {
+      lines.push(`原價:${data.originalPrice}`);
+    }
     lines.push(`售價:${data.price}`);
     if (data.weight) {
       lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
@@ -876,6 +887,9 @@ function buildQuoteMessage(flow, data, result) {
     lines.push('——————————');
     lines.push(`💰 建議報價:${result.total}`);
     lines.push(costLine(result));
+    if (result.originalQuote !== null && result.originalQuote !== undefined) {
+      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+    }
     return lines.join('\n');
   }
 
@@ -886,9 +900,14 @@ function buildQuoteMessage(flow, data, result) {
     `品牌:${data.brand}`,
     `名稱:${data.name}`,
   ];
+  if (data.link) lines.push(`連結:${data.link}`);
   if (data.color) lines.push(`顏色:${data.color}`);
   if (data.size) lines.push(`尺寸:${data.size}`);
   if (data.style) lines.push(`款式:${data.style}`);
+  if (data.note) lines.push(`備註:${data.note}`);
+  if (data.originalPrice !== null && data.originalPrice !== undefined) {
+    lines.push(`原價:${data.originalPrice}`);
+  }
   lines.push(`售價:${data.price}(同行匯率 1:${data.peerRate})`);
   lines.push(`買手費:${data.buyerFeePercent}%`);
   lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
@@ -896,6 +915,9 @@ function buildQuoteMessage(flow, data, result) {
   lines.push('——————————');
   lines.push(`💰 建議報價:${result.total}`);
   lines.push(costLine(result));
+  if (result.originalQuote !== null && result.originalQuote !== undefined) {
+    lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+  }
   return lines.join('\n');
 }
 
