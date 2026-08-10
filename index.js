@@ -95,7 +95,7 @@ async function fetchFxRate(code) {
   const res = await fetch('https://open.er-api.com/v6/latest/TWD');
   const json = await res.json();
   if (json.result !== 'success' || !json.rates || !json.rates[code]) {
-    throw new Error('匯率查詢失敗,請稍後再試一次');
+    throw new Error('匯率查詢失敗，請稍後再試一次');
   }
   const raw = json.rates[code];
   return raw >= 10 ? Math.round(raw) : Math.round(raw * 100) / 100;
@@ -106,7 +106,7 @@ async function fetchUsdToTwdRate() {
   const res = await fetch('https://open.er-api.com/v6/latest/TWD');
   const json = await res.json();
   if (json.result !== 'success' || !json.rates || !json.rates.USD) {
-    throw new Error('匯率查詢失敗,請稍後再試一次');
+    throw new Error('匯率查詢失敗，請稍後再試一次');
   }
   return round2(1 / json.rates.USD);
 }
@@ -370,7 +370,7 @@ function parseTemplate(text, fields, dynamicDefaults) {
 
     const m = raw.match(/-?\d+(\.\d+)?/);
     if (!m) {
-      missing.push(`${f.label}(請輸入數字)`);
+      missing.push(`${f.label}（請輸入數字）`);
       return;
     }
     let num = Number(m[0]);
@@ -379,7 +379,7 @@ function parseTemplate(text, fields, dynamicDefaults) {
   });
 
   if (missing.length > 0) {
-    throw new Error(`還缺少或格式不正確:${missing.join('、')},請重新整段貼上`);
+    throw new Error(`還缺少或格式不正確：${missing.join('、')}，請重新整段貼上`);
   }
   return data;
 }
@@ -446,9 +446,9 @@ function parseOrderTemplate(text) {
 
   const missing = [];
   if (!customerName) missing.push('客人姓名');
-  if (items.length === 0) missing.push('商品編號/數量(格式:商品編號/數量,一行一組)');
+  if (items.length === 0) missing.push('商品編號／數量（格式：商品編號／數量，一行一組）');
   if (missing.length > 0) {
-    throw new Error(`還缺少或格式不正確:${missing.join('、')},請重新整段貼上`);
+    throw new Error(`還缺少或格式不正確：${missing.join('、')}，請重新整段貼上`);
   }
 
   return { customerName, paymentMethod, items };
@@ -545,14 +545,15 @@ const DUTY_FREE_PHYSICAL_STEPS = [
 
 const ORDER_TEMPLATE_PROMPT =
   '請複製「客人姓名」以下的部分填寫、回傳\n' +
-  '⚠️付款方式:選填\n' +
-  '⚠️商品編號請照商品總表上的編號填,系統會自動帶入品牌/名稱/單價\n' +
-  '⚠️可以填很多筆,一行一組,格式:識別碼/數量/顏色/尺寸/款式(用斜線分開)\n' +
-  '⚠️顏色/尺寸/款式選填,沒有的話該欄留空或整段不寫都可以\n' +
-  '⚠️運費也可以列成一行,識別碼直接打運費代碼表上的代碼(例如「賣貨便_免運/1」)\n' +
-  '⚠️折扣列成一行,識別碼打「折扣」,數量直接當金額打負數(例如「折扣/-100」)\n\n' +
+  '⚠️付款方式：選填\n' +
+  '⚠️商品編號請照商品總表上的編號填，系統會自動帶入品牌／名稱／單價\n' +
+  '⚠️可以填很多筆，一行一組，格式：識別碼／數量／顏色／尺寸／款式（用斜線分開）\n' +
+  '⚠️顏色／尺寸／款式選填，沒有的話該欄留空或整段不寫都可以\n' +
+  '⚠️運費也可以列成一行，識別碼直接打運費代碼表上的代碼（例如「賣貨便_免運／1」）\n' +
+  '⚠️折扣列成一行，識別碼打「折扣」，數量直接當金額打負數（例如「折扣／-100」）\n' +
+  '⚠️韓國境內運費也是列成一行，識別碼打「韓國境內運費」，數量直接當金額打負數（例如「韓國境內運費／-70」）\n\n' +
   '客人姓名：\n' +
-  '商品編號/數量/顏色/尺寸/款式：\n' +
+  '商品編號／數量／顏色／尺寸／款式：\n' +
   '付款方式：';
 
 const ORDER_STEPS = [
@@ -694,7 +695,7 @@ async function handleEvent(event) {
     const usedRate = round2(liveRate - 4);
     session.data.fxRate = usedRate;
     session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
-    const infoMsg = `今日參考匯率：台幣 1:${liveRate}（韓國）\n本次報價使用匯率：1:${usedRate}（即時匯率−4）`;
+    const infoMsg = `今日參考匯率：台幣 1：${liveRate}（韓國）\n本次報價使用匯率：1：${usedRate}（即時匯率−4）`;
     return client.replyMessage(event.replyToken, startFlowMessages(KOREA_KRW_STEPS, session, [infoMsg]));
   }
 
@@ -705,7 +706,7 @@ async function handleEvent(event) {
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
     session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
-    const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
+    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣\n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_ONLINE_STEPS, session, [infoMsg]));
   }
 
@@ -716,7 +717,7 @@ async function handleEvent(event) {
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
     session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
-    const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
+    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣\n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_PHYSICAL_STEPS, session, [infoMsg]));
   }
 
@@ -726,7 +727,7 @@ async function handleEvent(event) {
     const liveRate = await fetchUsdToTwdRate();
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
-    const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
+    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣\n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(USA_STEPS, session, [infoMsg]));
   }
 
@@ -749,7 +750,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價,輸入「新增訂單」建立客人訂單,輸入「收款」標記客人已付款,或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價，輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -796,7 +797,7 @@ async function handleEvent(event) {
     }
     return client.replyMessage(
       event.replyToken,
-      buildStepMessage('請點選下方選單:台幣報價／韓幣報價／日幣報價', {
+      buildStepMessage('請點選下方選單：台幣報價／韓幣報價／日幣報價', {
         quickReplyItems: [
           { label: '🇹🇼 台幣報價', text: '台幣報價' },
           { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
@@ -826,14 +827,14 @@ async function handleEvent(event) {
       session.data.unpaidOrders = unpaid;
       session.step = 'awaitScope';
 
-      const lines = [`「${customerName}」未付款訂單:`];
+      const lines = [`「${customerName}」未付款訂單：`];
       let sum = 0;
       unpaid.forEach((o) => {
         lines.push(`${o.orderId}｜${o.name}${o.color ? '／' + o.color : ''}${o.size ? '／' + o.size : ''} x${o.quantity}｜$${o.total}`);
         sum += o.total;
       });
       lines.push('——————————');
-      lines.push(`💰 未付總金額:${sum}`);
+      lines.push(`💰 未付總金額：${sum}`);
 
       return client.replyMessage(event.replyToken, [
         buildStepMessage(lines.join('\n')),
@@ -856,9 +857,9 @@ async function handleEvent(event) {
       }
       if (text === '部分付款') {
         session.step = 'awaitOrderIds';
-        return client.replyMessage(event.replyToken, buildStepMessage('請輸入要付款的訂單編號,多筆請用逗號分隔(例如:ORD0012,ORD0013)'));
+        return client.replyMessage(event.replyToken, buildStepMessage('請輸入要付款的訂單編號，多筆請用逗號分隔（例如：ORD0012，ORD0013）'));
       }
-      return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單:全部付款／部分付款', {
+      return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單：全部付款／部分付款', {
         quickReplyItems: [
           { label: '✅ 全部付款', text: '全部付款' },
           { label: '☑️ 部分付款', text: '部分付款' },
@@ -871,7 +872,7 @@ async function handleEvent(event) {
       const validIds = session.data.unpaidOrders.map((o) => o.orderId);
       const invalid = ids.filter((id) => !validIds.includes(id));
       if (ids.length === 0 || invalid.length > 0) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 訂單編號有誤或不在未付款清單裡:${invalid.join('、') || '(未輸入)'}\n請重新輸入`));
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 訂單編號有誤或不在未付款清單裡：${invalid.join('、') || '（未輸入）'}\n請重新輸入`));
       }
       session.data.selectedOrderIds = ids;
       session.step = 'awaitPaymentMethod';
@@ -899,8 +900,8 @@ async function handleEvent(event) {
       const allTotal = session.data.unpaidOrders.reduce((sum, o) => sum + o.total, 0);
       const remaining = allTotal - paidTotal;
 
-      const lines = [`✅ 已標記付款(${text})`, `客人:${session.data.customerName}`, `訂單編號:${session.data.selectedOrderIds.join('、')}`, `💰 本次付款:${paidTotal}`];
-      if (remaining > 0) lines.push(`💰 尚未付款:${remaining}`);
+      const lines = [`✅ 已標記付款（${text}）`, `客人：${session.data.customerName}`, `訂單編號：${session.data.selectedOrderIds.join('、')}`, `💰 本次付款：${paidTotal}`];
+      if (remaining > 0) lines.push(`💰 尚未付款：${remaining}`);
       sessions.delete(userId);
       return client.replyMessage(event.replyToken, buildStepMessage(lines.join('\n')));
     }
@@ -912,10 +913,10 @@ async function handleEvent(event) {
 
   if (currentStep.type === 'image') {
     if (event.message.type !== 'image') {
-      return client.replyMessage(event.replyToken, buildStepMessage('請傳送圖片,不是文字喔📷', currentStep));
+      return client.replyMessage(event.replyToken, buildStepMessage('請傳送圖片，不是文字喔📷', currentStep));
     }
   } else if (event.message.type !== 'text') {
-    return client.replyMessage(event.replyToken, buildStepMessage('請用文字輸入,或點選下方選單', currentStep));
+    return client.replyMessage(event.replyToken, buildStepMessage('請用文字輸入，或點選下方選單', currentStep));
   }
 
   try {
@@ -951,7 +952,7 @@ async function handleEvent(event) {
           }
         });
         if (lowestPrice === null) {
-          throw new Error('至少要填一間店的售價,請重新整段貼上');
+          throw new Error('至少要填一間店的售價，請重新整段貼上');
         }
         session.data.lowestPrice = lowestPrice;
         session.data.lowestStore = lowestStore;
@@ -972,7 +973,7 @@ async function handleEvent(event) {
     if (nextStep) {
       let promptMessage;
       if (currentStep.type === 'image' && session.templatePreShown && nextStep.type === 'template') {
-        promptMessage = buildStepMessage('📷 圖片收到,請貼上你填好的資料');
+        promptMessage = buildStepMessage('📷 圖片收到，請貼上你填好的資料');
         session.templatePreShown = false;
       } else {
         promptMessage = buildStepMessage(stepPrompt(nextStep, session), nextStep);
@@ -1007,7 +1008,7 @@ async function handleEvent(event) {
         ]);
       })
       .catch((err) => {
-        return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗:${err.message}\n請重新送出一次`));
+        return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
       });
 
     return;
@@ -1026,7 +1027,7 @@ async function submitToAppsScript(flow, data, dryRun) {
   try {
     json = await res.json();
   } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
   }
   if (!json.success) {
     throw new Error(json.error || '寫入試算表失敗');
@@ -1044,7 +1045,7 @@ async function submitOverride(field, productId, value) {
   try {
     json = await res.json();
   } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
   }
   if (!json.success) {
     throw new Error(json.error || '更新失敗');
@@ -1062,7 +1063,7 @@ async function fetchUnpaidOrders(customerName) {
   try {
     json = await res.json();
   } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
   }
   if (!json.success) {
     throw new Error(json.error || '查詢失敗');
@@ -1080,7 +1081,7 @@ async function markOrdersPaid(orderIds, paymentMethod) {
   try {
     json = await res.json();
   } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤,請確認網址與部署設定');
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
   }
   if (!json.success) {
     throw new Error(json.error || '更新失敗');
@@ -1095,27 +1096,27 @@ function costLine(result) {
 
 function buildQuoteMessage(flow, data, result) {
   if (flow === 'order') {
-    const lines = ['✅ 訂購表單新增完成', `客人:${data.customerName}`];
+    const lines = ['✅ 訂購表單新增完成', `客人：${data.customerName}`];
     result.orders.forEach((o) => {
       lines.push('——————————');
       if (o.type === 'product') {
-        lines.push(`商品編號:${o.identifier}`);
-        lines.push(`品牌:${o.brand}`);
-        lines.push(`名稱:${o.name}`);
-        if (o.color) lines.push(`顏色:${o.color}`);
-        if (o.size) lines.push(`尺寸:${o.size}`);
-        if (o.style) lines.push(`款式:${o.style}`);
+        lines.push(`商品編號：${o.identifier}`);
+        lines.push(`品牌：${o.brand}`);
+        lines.push(`名稱：${o.name}`);
+        if (o.color) lines.push(`顏色：${o.color}`);
+        if (o.size) lines.push(`尺寸：${o.size}`);
+        if (o.style) lines.push(`款式：${o.style}`);
       } else {
-        lines.push(`項目:${o.name}`);
+        lines.push(`項目：${o.name}`);
       }
-      lines.push(`數量:${o.quantity}`);
-      lines.push(`單價:${o.unitPrice}`);
-      lines.push(`小計:${o.total}`);
+      lines.push(`數量：${o.quantity}`);
+      lines.push(`單價：${o.unitPrice}`);
+      lines.push(`小計：${o.total}`);
     });
     lines.push('——————————');
-    if (data.paymentMethod) lines.push(`付款方式:${data.paymentMethod}`);
-    lines.push(`已收款:${data.received ? '是' : '否'}`);
-    lines.push(`💰 總金額:${result.grandTotal}`);
+    if (data.paymentMethod) lines.push(`付款方式：${data.paymentMethod}`);
+    lines.push(`已收款：${data.received ? '是' : '否'}`);
+    lines.push(`💰 總金額：${result.grandTotal}`);
     return lines.join('\n');
   }
 
@@ -1125,27 +1126,27 @@ function buildQuoteMessage(flow, data, result) {
     const d1 = data.discount1 ? 1 - data.discount1 / 100 : 1;
     const d2 = data.discount2 ? 1 - data.discount2 / 100 : 1;
 
-    const lines = [title, '編號:確認中(稍後補上)', `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.color) lines.push(`顏色:${data.color}`);
-    if (data.size) lines.push(`尺寸:${data.size}`);
-    if (data.style) lines.push(`款式:${data.style}`);
-    if (data.note) lines.push(`備註:${data.note}`);
+    const lines = [title, '編號：確認中（稍後補上）', `品牌：${data.brand}`, `名稱：${data.name}`];
+    if (data.color) lines.push(`顏色：${data.color}`);
+    if (data.size) lines.push(`尺寸：${data.size}`);
+    if (data.style) lines.push(`款式：${data.style}`);
+    if (data.note) lines.push(`備註：${data.note}`);
 
     const filledStores = Object.keys(DUTY_FREE_STORES).filter((key) => data[key] !== null && data[key] !== undefined);
-    const storeLines = filledStores.map((key) => `${DUTY_FREE_STORES[key]}:${data[key]}`);
-    lines.push(`各店售價:${storeLines.join('、')}`);
-    lines.push(`最低售價:${data.lowestPrice}(${data.lowestStore},匯率 1美金:${data.fxRate})`);
+    const storeLines = filledStores.map((key) => `${DUTY_FREE_STORES[key]}：${data[key]}`);
+    lines.push(`各店售價：${storeLines.join('、')}`);
+    lines.push(`最低售價：${data.lowestPrice}（${data.lowestStore}，匯率 1美金：${data.fxRate}）`);
     if (isPhysical) {
-      if (data.discount1 !== null && data.discount1 !== undefined) lines.push(`折扣1(金卡):${data.discount1}%`);
-      if (data.discount2 !== null && data.discount2 !== undefined) lines.push(`折扣2(返點):${data.discount2}%`);
+      if (data.discount1 !== null && data.discount1 !== undefined) lines.push(`折扣1（金卡）：${data.discount1}%`);
+      if (data.discount2 !== null && data.discount2 !== undefined) lines.push(`折扣2（返點）：${data.discount2}%`);
     }
     if (data.weight !== null && data.weight !== undefined) {
-      lines.push(`重量:${data.weight} kg`);
+      lines.push(`重量：${data.weight} kg`);
     } else {
-      lines.push('重量:未填(親飛帶回)');
+      lines.push('重量：未填（親飛帶回）');
     }
-    lines.push(`類別:${data.category}（每公斤運費 ${result.shippingRatePerKg}，韓國運費 ${data.koreaShippingFee} 韓幣）`);
-    lines.push(`利潤:${data.profit}`);
+    lines.push(`類別：${data.category}（每公斤運費 ${result.shippingRatePerKg}，韓國運費 ${data.koreaShippingFee} 韓幣）`);
+    lines.push(`利潤：${data.profit}`);
     lines.push('——————————');
 
     // 每一間有填售價的店都各自算一次報價,由低到高排序,方便缺貨時知道改用哪家的價格
@@ -1156,7 +1157,7 @@ function buildQuoteMessage(flow, data, result) {
       const totalCost = baseCost + result.shippingCost;
       const quote = ceilTo10(totalCost + data.profit);
       lines.push(DUTY_FREE_STORES[key]);
-      lines.push(`💰 建議報價:${quote}`);
+      lines.push(`💰 建議報價：${quote}`);
       lines.push(`💰 商品總成本：${baseCost}+${result.shippingCost}=${totalCost}`);
       lines.push('');
     });
@@ -1166,116 +1167,116 @@ function buildQuoteMessage(flow, data, result) {
   }
 
   if (flow === 'usa') {
-    const lines = ['✅ 美國代購報價完成', '編號:確認中(稍後補上)', `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.link) lines.push(`連結:${data.link}`);
-    if (data.color) lines.push(`顏色:${data.color}`);
-    if (data.size) lines.push(`尺寸:${data.size}`);
-    if (data.style) lines.push(`款式:${data.style}`);
-    if (data.note) lines.push(`備註:${data.note}`);
+    const lines = ['✅ 美國代購報價完成', '編號：確認中（稍後補上）', `購買地點：${data.location}`, `品牌：${data.brand}`, `名稱：${data.name}`];
+    if (data.link) lines.push(`連結：${data.link}`);
+    if (data.color) lines.push(`顏色：${data.color}`);
+    if (data.size) lines.push(`尺寸：${data.size}`);
+    if (data.style) lines.push(`款式：${data.style}`);
+    if (data.note) lines.push(`備註：${data.note}`);
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
-      lines.push(`原價:${data.originalPrice}`);
+      lines.push(`原價：${data.originalPrice}`);
     }
-    lines.push(`售價:${data.price}(匯率 1美金:${data.fxRate})`);
-    lines.push(`買手費:${data.buyerFeePercent}%`);
+    lines.push(`售價：${data.price}（匯率 1美金：${data.fxRate}）`);
+    lines.push(`買手費：${data.buyerFeePercent}%`);
     if (data.weight !== null && data.weight !== undefined) {
-      lines.push(`重量:${data.weight} kg,運費:每磅$${data.shippingFeePerLb},包材費:$${data.packagingFee}`);
+      lines.push(`重量：${data.weight} kg，運費：每磅$${data.shippingFeePerLb}，包材費：$${data.packagingFee}`);
     } else {
-      lines.push('重量:未填(親飛帶回,運費、包材費都不收)');
+      lines.push('重量：未填（親飛帶回，運費、包材費都不收）');
     }
-    lines.push(`利潤:${data.profit}`);
+    lines.push(`利潤：${data.profit}`);
     lines.push('——————————');
-    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 建議報價：${result.total}`);
     lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
-      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+      lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
     }
     return lines.join('\n');
   }
 
   if (flow === 'koreaKrw') {
-    const lines = ['✅ 韓幣報價完成', '編號:確認中(稍後補上)', `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.link) lines.push(`連結:${data.link}`);
-    if (data.color) lines.push(`顏色:${data.color}`);
-    if (data.size) lines.push(`尺寸:${data.size}`);
-    if (data.style) lines.push(`款式:${data.style}`);
-    if (data.note) lines.push(`備註:${data.note}`);
+    const lines = ['✅ 韓幣報價完成', '編號：確認中（稍後補上）', `購買地點：${data.location}`, `品牌：${data.brand}`, `名稱：${data.name}`];
+    if (data.link) lines.push(`連結：${data.link}`);
+    if (data.color) lines.push(`顏色：${data.color}`);
+    if (data.size) lines.push(`尺寸：${data.size}`);
+    if (data.style) lines.push(`款式：${data.style}`);
+    if (data.note) lines.push(`備註：${data.note}`);
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
-      lines.push(`原價:${data.originalPrice}`);
+      lines.push(`原價：${data.originalPrice}`);
     }
-    lines.push(`售價:${data.price}(匯率 1:${data.fxRate})`);
+    lines.push(`售價：${data.price}（匯率 1：${data.fxRate}）`);
     if (data.weight !== null && data.weight !== undefined) {
-      lines.push(`重量:${data.weight} kg`);
+      lines.push(`重量：${data.weight} kg`);
     } else {
-      lines.push('重量:未填(親飛帶回)');
+      lines.push('重量：未填（親飛帶回）');
     }
-    lines.push(`類別:${data.category}（每公斤運費 ${result.shippingRatePerKg}，韓國運費 ${data.koreaShippingFee} 韓幣）`);
-    lines.push(`利潤:${data.profit}`);
+    lines.push(`類別：${data.category}（每公斤運費 ${result.shippingRatePerKg}，韓國運費 ${data.koreaShippingFee} 韓幣）`);
+    lines.push(`利潤：${data.profit}`);
     lines.push('——————————');
-    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 建議報價：${result.total}`);
     lines.push(`💰 商品總成本：${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`);
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
-      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+      lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
     }
     return lines.join('\n');
   }
 
   if (flow === 'peerTwd') {
-    const lines = ['✅ 同行報價完成(台幣)', '編號:確認中(稍後補上)', `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`];
-    if (data.link) lines.push(`連結:${data.link}`);
-    if (data.color) lines.push(`顏色:${data.color}`);
-    if (data.size) lines.push(`尺寸:${data.size}`);
-    if (data.style) lines.push(`款式:${data.style}`);
-    if (data.note) lines.push(`備註:${data.note}`);
+    const lines = ['✅ 同行報價完成（台幣）', '編號：確認中（稍後補上）', `同行：${data.peerName}`, `品牌：${data.brand}`, `名稱：${data.name}`];
+    if (data.link) lines.push(`連結：${data.link}`);
+    if (data.color) lines.push(`顏色：${data.color}`);
+    if (data.size) lines.push(`尺寸：${data.size}`);
+    if (data.style) lines.push(`款式：${data.style}`);
+    if (data.note) lines.push(`備註：${data.note}`);
     if (data.originalPrice !== null && data.originalPrice !== undefined) {
-      lines.push(`原價:${data.originalPrice}`);
+      lines.push(`原價：${data.originalPrice}`);
     }
-    lines.push(`售價:${data.price}`);
+    lines.push(`售價：${data.price}`);
     if (data.weight) {
-      lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
+      lines.push(`重量：${data.weight} kg，每公斤運費：${data.shippingRate}`);
     } else {
-      lines.push('重量:未填(售價已含運費)');
+      lines.push('重量：未填（售價已含運費）');
     }
-    lines.push(`利潤:${data.profit}`);
+    lines.push(`利潤：${data.profit}`);
     lines.push('——————————');
-    lines.push(`💰 建議報價:${result.total}`);
+    lines.push(`💰 建議報價：${result.total}`);
     lines.push(costLine(result));
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
-      lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+      lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
     }
     return lines.join('\n');
   }
 
   const peerCurrencyLabel = flow === 'peerJpy' ? '日幣' : '韓幣';
   const lines = [
-    `✅ 同行報價完成(${peerCurrencyLabel})`,
-    '編號:確認中(稍後補上)',
-    `同行:${data.peerName}`,
-    `品牌:${data.brand}`,
-    `名稱:${data.name}`,
+    `✅ 同行報價完成（${peerCurrencyLabel}）`,
+    '編號：確認中（稍後補上）',
+    `同行：${data.peerName}`,
+    `品牌：${data.brand}`,
+    `名稱：${data.name}`,
   ];
-  if (data.link) lines.push(`連結:${data.link}`);
-  if (data.color) lines.push(`顏色:${data.color}`);
-  if (data.size) lines.push(`尺寸:${data.size}`);
-  if (data.style) lines.push(`款式:${data.style}`);
-  if (data.note) lines.push(`備註:${data.note}`);
+  if (data.link) lines.push(`連結：${data.link}`);
+  if (data.color) lines.push(`顏色：${data.color}`);
+  if (data.size) lines.push(`尺寸：${data.size}`);
+  if (data.style) lines.push(`款式：${data.style}`);
+  if (data.note) lines.push(`備註：${data.note}`);
   if (data.originalPrice !== null && data.originalPrice !== undefined) {
-    lines.push(`原價:${data.originalPrice}`);
+    lines.push(`原價：${data.originalPrice}`);
   }
-  lines.push(`售價:${data.price}(同行匯率 1:${data.peerRate})`);
+  lines.push(`售價：${data.price}（同行匯率 1：${data.peerRate}）`);
   if (data.buyerFeePercent !== null && data.buyerFeePercent !== undefined) {
-    lines.push(`買手費:${data.buyerFeePercent}%`);
+    lines.push(`買手費：${data.buyerFeePercent}%`);
   }
   if (data.weight !== null && data.weight !== undefined) {
-    lines.push(`重量:${data.weight} kg,每公斤運費:${data.shippingRate}`);
+    lines.push(`重量：${data.weight} kg，每公斤運費：${data.shippingRate}`);
   } else {
-    lines.push('重量:未填(親飛帶回)');
+    lines.push('重量：未填（親飛帶回）');
   }
-  lines.push(`利潤:${data.profit}`);
+  lines.push(`利潤：${data.profit}`);
   lines.push('——————————');
-  lines.push(`💰 建議報價:${result.total}`);
+  lines.push(`💰 建議報價：${result.total}`);
   lines.push(costLine(result));
   if (result.originalQuote !== null && result.originalQuote !== undefined) {
-    lines.push(`💰 原價報價(參考):${result.originalQuote}`);
+    lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
   }
   return lines.join('\n');
 }
