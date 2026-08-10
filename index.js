@@ -128,6 +128,24 @@ async function fetchLastKoreaShippingFee() {
   return json.value;
 }
 
+async function fetchCustomerToken(customerName) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'getCustomerToken', customerName }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '產生連結失敗');
+  }
+  return json.token;
+}
+
 // ------------------- 整段範本欄位定義 -------------------
 // type: 'text' | 'number' | 'price'(number 再四捨五入到十位數)
 // required: 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
@@ -815,7 +833,13 @@ async function handleEvent(event) {
   if (session.flow === 'customerSummary') {
     const customerName = text.trim();
     sessions.delete(userId);
-    const url = `${APPS_SCRIPT_URL}?customer=${encodeURIComponent(customerName)}`;
+    let token;
+    try {
+      token = await fetchCustomerToken(customerName);
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+    }
+    const url = `${APPS_SCRIPT_URL}?token=${token}`;
     return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️\n${url}`));
   }
 
