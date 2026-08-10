@@ -980,27 +980,42 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, messages);
     }
 
-    // 全部欄位收集完成,呼叫 Apps Script 計算並寫入試算表
-    const result = await submitToAppsScript(session.flow, session.data);
+    // 全部欄位收集完成,先用「試算模式」快速算出報價(不寫入表格),立刻回覆給使用者
+    const dryRunResult = await submitToAppsScript(session.flow, session.data, true);
     const finalData = session.data;
     const finalFlow = session.flow;
     sessions.delete(userId);
-    const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, result))];
+    const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, dryRunResult))];
     if (finalFlow !== 'order') {
       const flag = flagForFlow(finalFlow, finalData);
-      messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, result.total, finalData.color, finalData.size, finalData.style)));
+      messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, dryRunResult.total, finalData.color, finalData.size, finalData.style)));
     }
-    return client.replyMessage(event.replyToken, messages);
+    await client.replyMessage(event.replyToken, messages);
+
+    // 背景真正寫入試算表,完成後用推播訊息補上商品編號(不 await,不擋住剛剛的回覆)
+    // 沒有收到這則補充訊息,就代表這筆沒有真的成立,需要重新送出一次。
+    submitToAppsScript(finalFlow, finalData, false)
+      .then((result) => {
+        const confirmText = finalFlow === 'order'
+          ? `✅ 已成立\n${result.orders.map((o) => o.orderId).join('、')}`
+          : `✅ 已成立,商品編號:${result.productId}`;
+        return client.pushMessage(userId, buildStepMessage(confirmText));
+      })
+      .catch((err) => {
+        return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗:${err.message}\n請重新送出一次`));
+      });
+
+    return;
   } catch (err) {
     return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
   }
 }
 
-async function submitToAppsScript(flow, data) {
+async function submitToAppsScript(flow, data, dryRun) {
   const res = await fetch(APPS_SCRIPT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, recordType: flow, ...data }),
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, recordType: flow, dryRun: !!dryRun, ...data }),
   });
   let json;
   try {
@@ -1011,7 +1026,7 @@ async function submitToAppsScript(flow, data) {
   if (!json.success) {
     throw new Error(json.error || '寫入試算表失敗');
   }
-  return json; // { success, productId, total, shippingRatePerKg?, baseCost, shippingCost }
+  return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
 }
 
 async function submitOverride(field, productId, value) {
@@ -1078,7 +1093,6 @@ function buildQuoteMessage(flow, data, result) {
     const lines = ['✅ 訂購表單新增完成', `客人:${data.customerName}`];
     result.orders.forEach((o) => {
       lines.push('——————————');
-      lines.push(`訂單編號:${o.orderId}`);
       if (o.type === 'product') {
         lines.push(`商品編號:${o.identifier}`);
         lines.push(`品牌:${o.brand}`);
@@ -1106,7 +1120,7 @@ function buildQuoteMessage(flow, data, result) {
     const d1 = data.discount1 ? 1 - data.discount1 / 100 : 1;
     const d2 = data.discount2 ? 1 - data.discount2 / 100 : 1;
 
-    const lines = [title, `編號:${result.productId}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    const lines = [title, '編號:確認中(稍後補上)', `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
     if (data.style) lines.push(`款式:${data.style}`);
@@ -1147,7 +1161,7 @@ function buildQuoteMessage(flow, data, result) {
   }
 
   if (flow === 'usa') {
-    const lines = ['✅ 美國代購報價完成', `編號:${result.productId}`, `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    const lines = ['✅ 美國代購報價完成', '編號:確認中(稍後補上)', `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.link) lines.push(`連結:${data.link}`);
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
@@ -1174,7 +1188,7 @@ function buildQuoteMessage(flow, data, result) {
   }
 
   if (flow === 'koreaKrw') {
-    const lines = ['✅ 韓幣報價完成', `編號:${result.productId}`, `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    const lines = ['✅ 韓幣報價完成', '編號:確認中(稍後補上)', `購買地點:${data.location}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.link) lines.push(`連結:${data.link}`);
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
@@ -1201,7 +1215,7 @@ function buildQuoteMessage(flow, data, result) {
   }
 
   if (flow === 'peerTwd') {
-    const lines = ['✅ 同行報價完成(台幣)', `編號:${result.productId}`, `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`];
+    const lines = ['✅ 同行報價完成(台幣)', '編號:確認中(稍後補上)', `同行:${data.peerName}`, `品牌:${data.brand}`, `名稱:${data.name}`];
     if (data.link) lines.push(`連結:${data.link}`);
     if (data.color) lines.push(`顏色:${data.color}`);
     if (data.size) lines.push(`尺寸:${data.size}`);
@@ -1229,7 +1243,7 @@ function buildQuoteMessage(flow, data, result) {
   const peerCurrencyLabel = flow === 'peerJpy' ? '日幣' : '韓幣';
   const lines = [
     `✅ 同行報價完成(${peerCurrencyLabel})`,
-    `編號:${result.productId}`,
+    '編號:確認中(稍後補上)',
     `同行:${data.peerName}`,
     `品牌:${data.brand}`,
     `名稱:${data.name}`,
