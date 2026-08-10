@@ -743,6 +743,11 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入客人姓名'));
   }
 
+  if (text === '客戶明細') {
+    sessions.set(userId, { flow: 'customerSummary', step: 'awaitName', data: {} });
+    return client.replyMessage(event.replyToken, buildStepMessage('請輸入客人姓名'));
+  }
+
   if (text === '改報價' || text === '改利潤') {
     sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
@@ -750,7 +755,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價，輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價，輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'override') {
@@ -805,6 +810,13 @@ async function handleEvent(event) {
         ],
       })
     );
+  }
+
+  if (session.flow === 'customerSummary') {
+    const customerName = text.trim();
+    sessions.delete(userId);
+    const url = `${APPS_SCRIPT_URL}?customer=${encodeURIComponent(customerName)}`;
+    return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️\n${url}`));
   }
 
   if (session.flow === 'collectPayment') {
