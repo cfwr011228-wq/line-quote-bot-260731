@@ -774,8 +774,9 @@ async function handleEvent(event) {
     sessions.delete(userId);
     try {
       const result = await submitOverride(session.field, productId, value);
-      const lines = [`✅ 已更新 編號 ${productId} 的${label}`, `新${label}:${value}`];
-      if (result.newTotal !== undefined) lines.push(`目前報價:${result.newTotal}`);
+      const lines = ['✅ 已更新報價', `商品編號：${productId}`];
+      if (result.oldTotal !== undefined && result.oldTotal !== '') lines.push(`原報價：${result.oldTotal}`);
+      if (result.newTotal !== undefined) lines.push(`新報價：${result.newTotal}`);
       const messages = [buildStepMessage(lines.join('\n'))];
       if (result.brand && result.name && result.newTotal !== undefined) {
         messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal, result.color, result.size, result.style)));
@@ -996,10 +997,14 @@ async function handleEvent(event) {
     // 沒有收到這則補充訊息,就代表這筆沒有真的成立,需要重新送出一次。
     submitToAppsScript(finalFlow, finalData, false)
       .then((result) => {
-        const confirmText = finalFlow === 'order'
-          ? `✅ 已成立\n${result.orders.map((o) => o.orderId).join('、')}`
-          : `✅ 已成立,商品編號:${result.productId}`;
-        return client.pushMessage(userId, buildStepMessage(confirmText));
+        const idText = finalFlow === 'order'
+          ? result.orders.map((o) => o.orderId).join('、')
+          : String(result.productId);
+        const label = finalFlow === 'order' ? '訂單編號' : '商品編號';
+        return client.pushMessage(userId, [
+          buildStepMessage(`✅ 已成立\n${label}⬇️`),
+          buildStepMessage(idText),
+        ]);
       })
       .catch((err) => {
         return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗:${err.message}\n請重新送出一次`));
