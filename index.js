@@ -111,6 +111,23 @@ async function fetchUsdToTwdRate() {
   return round2(1 / json.rates.USD);
 }
 
+// 韓國運費(韓幣)沒有即時查詢的API,改成向 Apps Script 查上次使用的數字當預設值
+async function fetchLastKoreaShippingFee() {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'getLastKoreaShippingFee' }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    return 5300; // 查詢失敗就用一個保底預設值,不阻擋流程
+  }
+  if (!json.success) return 5300;
+  return json.value;
+}
+
 // ------------------- 整段範本欄位定義 -------------------
 // type: 'text' | 'number' | 'price'(number 再四捨五入到十位數)
 // required: 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
@@ -189,6 +206,7 @@ const DUTY_FREE_ONLINE_FIELDS = [
   ...buildDutyFreeStoreFields(),
   { label: '重量（kg）', key: 'weight', type: 'number' },
   { label: '匯率', key: 'fxRate', type: 'number' },
+  { label: '韓國運費（韓幣）', key: 'koreaShippingFee', type: 'number' }, // 每次帶入上次使用的數字,可直接覆蓋
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
@@ -204,25 +222,30 @@ const DUTY_FREE_PHYSICAL_FIELDS = [
   { label: '折扣2（返點%）', key: 'discount2', type: 'number' },
   { label: '重量（kg）', key: 'weight', type: 'number' },
   { label: '匯率', key: 'fxRate', type: 'number' },
+  { label: '韓國運費（韓幣）', key: 'koreaShippingFee', type: 'number' }, // 每次帶入上次使用的數字,可直接覆蓋
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
 function buildDutyFreeOnlineTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = DUTY_FREE_ONLINE_FIELDS.map((f) =>
-    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
-  );
+  const fieldsWithDynamicDefault = DUTY_FREE_ONLINE_FIELDS.map((f) => {
+    if (f.key === 'fxRate') return { ...f, default: session.data.fxRate };
+    if (f.key === 'koreaShippingFee') return { ...f, default: session.data.koreaShippingFee };
+    return f;
+  });
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改',
+    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
     fieldsWithDynamicDefault
   );
 }
 
 function buildDutyFreePhysicalTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = DUTY_FREE_PHYSICAL_FIELDS.map((f) =>
-    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
-  );
+  const fieldsWithDynamicDefault = DUTY_FREE_PHYSICAL_FIELDS.map((f) => {
+    if (f.key === 'fxRate') return { ...f, default: session.data.fxRate };
+    if (f.key === 'koreaShippingFee') return { ...f, default: session.data.koreaShippingFee };
+    return f;
+  });
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改',
+    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
     fieldsWithDynamicDefault
   );
 }
@@ -240,15 +263,18 @@ const KOREA_KRW_FIELDS = [
   { label: '售價', key: 'price', type: 'number', required: true }, // 不做四捨五入,直接照打的存
   { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
   { label: '匯率', key: 'fxRate', type: 'number' },
+  { label: '韓國運費（韓幣）', key: 'koreaShippingFee', type: 'number' }, // 每次帶入上次使用的數字,可直接覆蓋
   { label: '利潤', key: 'profit', type: 'number', default: 200 },
 ];
 
 function buildKoreaKrwTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = KOREA_KRW_FIELDS.map((f) =>
-    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
-  );
+  const fieldsWithDynamicDefault = KOREA_KRW_FIELDS.map((f) => {
+    if (f.key === 'fxRate') return { ...f, default: session.data.fxRate };
+    if (f.key === 'koreaShippingFee') return { ...f, default: session.data.koreaShippingFee };
+    return f;
+  });
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改',
+    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
     fieldsWithDynamicDefault
   );
 }
@@ -358,20 +384,23 @@ function parseTemplate(text, fields, dynamicDefaults) {
   return data;
 }
 
-// 解析單一商品行,格式:商品編號/數量,或商品編號/數量/顏色/尺寸/款式
+// 解析單一行,格式:識別碼/數量,或識別碼/數量/顏色/尺寸/款式
+// 識別碼可以是:商品編號(對照商品總表)、運費項目名稱(對照運費代碼表,例如「賣貨便免運」)、
+// 或關鍵字「折扣」(後面數字直接當金額,可以是負數)。
 // 顏色/尺寸/款式可以整段不填,也可以中間留空段(用連續的斜線代表跳過),例如:
 //   202608090016/2            -> 只有編號跟數量
 //   202608090016/2//XL/       -> 尺寸XL,顏色、款式留空
-//   202608090016/2/紅//       -> 顏色紅,尺寸、款式留空
+//   賣貨便免運/1               -> 運費項目
+//   折扣/-100                  -> 折扣,直接扣100元
 function parseOrderItemLine(line) {
   const parts = line.split(/[\/／]/).map((s) => s.trim());
   if (parts.length < 2) return null;
-  const productId = parts[0];
-  if (!/^[A-Za-z0-9]+$/.test(productId)) return null;
-  if (!/^\d+(\.\d+)?$/.test(parts[1])) return null;
+  const identifier = parts[0];
+  if (!identifier) return null;
+  if (!/^-?\d+(\.\d+)?$/.test(parts[1])) return null; // 數量/金額允許負數(折扣、扣運費用)
 
   return {
-    productId,
+    identifier,
     quantity: Number(parts[1]),
     color: parts[2] ? parts[2] : null,
     size: parts[3] ? parts[3] : null,
@@ -450,7 +479,7 @@ const KOREA_KRW_STEPS = [
     type: 'template',
     fields: KOREA_KRW_FIELDS,
     promptFn: buildKoreaKrwTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate, koreaShippingFee: session.data.koreaShippingFee }),
   },
   {
     key: 'category',
@@ -481,7 +510,7 @@ const DUTY_FREE_ONLINE_STEPS = [
     type: 'template',
     fields: DUTY_FREE_ONLINE_FIELDS,
     promptFn: buildDutyFreeOnlineTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate, koreaShippingFee: session.data.koreaShippingFee }),
   },
   {
     key: 'category',
@@ -501,7 +530,7 @@ const DUTY_FREE_PHYSICAL_STEPS = [
     type: 'template',
     fields: DUTY_FREE_PHYSICAL_FIELDS,
     promptFn: buildDutyFreePhysicalTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate, koreaShippingFee: session.data.koreaShippingFee }),
   },
   {
     key: 'category',
@@ -518,8 +547,10 @@ const ORDER_TEMPLATE_PROMPT =
   '請複製「客人姓名」以下的部分填寫、回傳\n' +
   '⚠️付款方式:選填\n' +
   '⚠️商品編號請照商品總表上的編號填,系統會自動帶入品牌/名稱/單價\n' +
-  '⚠️可以填很多筆,一行一組,格式:商品編號/數量/顏色/尺寸/款式(用斜線分開)\n' +
-  '⚠️顏色/尺寸/款式選填,沒有的話該欄留空或整段不寫都可以\n\n' +
+  '⚠️可以填很多筆,一行一組,格式:識別碼/數量/顏色/尺寸/款式(用斜線分開)\n' +
+  '⚠️顏色/尺寸/款式選填,沒有的話該欄留空或整段不寫都可以\n' +
+  '⚠️運費也可以列成一行,識別碼直接打運費代碼表上的代碼(例如「賣貨便_免運/1」)\n' +
+  '⚠️折扣列成一行,識別碼打「折扣」,數量直接當金額打負數(例如「折扣/-100」)\n\n' +
   '客人姓名：\n' +
   '商品編號/數量/顏色/尺寸/款式：\n' +
   '付款方式：';
@@ -662,6 +693,7 @@ async function handleEvent(event) {
     const liveRate = await fetchFxRate(meta.code);
     const usedRate = round2(liveRate - 4);
     session.data.fxRate = usedRate;
+    session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
     const infoMsg = `今日參考匯率：台幣 1:${liveRate}（韓國）\n本次報價使用匯率：1:${usedRate}（即時匯率−4）`;
     return client.replyMessage(event.replyToken, startFlowMessages(KOREA_KRW_STEPS, session, [infoMsg]));
   }
@@ -672,6 +704,7 @@ async function handleEvent(event) {
     const liveRate = await fetchUsdToTwdRate();
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
+    session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
     const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_ONLINE_STEPS, session, [infoMsg]));
   }
@@ -682,6 +715,7 @@ async function handleEvent(event) {
     const liveRate = await fetchUsdToTwdRate();
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
+    session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
     const infoMsg = `今日參考匯率：1美金:${liveRate}台幣\n本次報價使用匯率：1美金:${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_PHYSICAL_STEPS, session, [infoMsg]));
   }
@@ -1045,12 +1079,16 @@ function buildQuoteMessage(flow, data, result) {
     result.orders.forEach((o) => {
       lines.push('——————————');
       lines.push(`訂單編號:${o.orderId}`);
-      lines.push(`商品編號:${o.productId}`);
-      lines.push(`品牌:${o.brand}`);
-      lines.push(`名稱:${o.name}`);
-      if (o.color) lines.push(`顏色:${o.color}`);
-      if (o.size) lines.push(`尺寸:${o.size}`);
-      if (o.style) lines.push(`款式:${o.style}`);
+      if (o.type === 'product') {
+        lines.push(`商品編號:${o.identifier}`);
+        lines.push(`品牌:${o.brand}`);
+        lines.push(`名稱:${o.name}`);
+        if (o.color) lines.push(`顏色:${o.color}`);
+        if (o.size) lines.push(`尺寸:${o.size}`);
+        if (o.style) lines.push(`款式:${o.style}`);
+      } else {
+        lines.push(`項目:${o.name}`);
+      }
       lines.push(`數量:${o.quantity}`);
       lines.push(`單價:${o.unitPrice}`);
       lines.push(`小計:${o.total}`);
@@ -1087,7 +1125,7 @@ function buildQuoteMessage(flow, data, result) {
     } else {
       lines.push('重量:未填(親飛帶回)');
     }
-    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
+    lines.push(`類別:${data.category}（每公斤運費 ${result.shippingRatePerKg}，韓國運費 ${data.koreaShippingFee} 韓幣）`);
     lines.push(`利潤:${data.profit}`);
     lines.push('——————————');
 
@@ -1151,7 +1189,7 @@ function buildQuoteMessage(flow, data, result) {
     } else {
       lines.push('重量:未填(親飛帶回)');
     }
-    lines.push(`類別:${data.category}(每公斤運費 ${result.shippingRatePerKg})`);
+    lines.push(`類別:${data.category}（每公斤運費 ${result.shippingRatePerKg}，韓國運費 ${data.koreaShippingFee} 韓幣）`);
     lines.push(`利潤:${data.profit}`);
     lines.push('——————————');
     lines.push(`💰 建議報價:${result.total}`);
