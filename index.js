@@ -563,17 +563,20 @@ const DUTY_FREE_PHYSICAL_STEPS = [
 
 const ORDER_TEMPLATE_PROMPT =
   '請複製「客人姓名」以下的部分填寫、回傳\n' +
-  '⚠️付款方式：選填\n' +
   '⚠️商品編號請照商品總表上的編號填，系統會自動帶入品牌／名稱／單價\n' +
   '⚠️可以填很多筆，一行一組，格式：識別碼／數量／顏色／尺寸／款式（用斜線分開）\n' +
   '⚠️顏色／尺寸／款式選填，沒有的話該欄留空或整段不寫都可以\n' +
   '⚠️運費也可以列成一行，識別碼直接打運費代碼表上的代碼（例如「賣貨便_免運／1」）\n' +
-  '⚠️折扣列成一行，識別碼打「折扣」，數量直接當金額打負數（例如「折扣／-100」）\n' +
-  '⚠️韓國境內運費也是列成一行，識別碼打「韓國境內運費」，數量直接當金額打負數（例如「韓國境內運費／-70」）\n' +
-  '⚠️客人要用購物金折抵，列成一行，識別碼打「購物金」，數量直接當金額打負數（例如「購物金／-200」），系統會自動檢查餘額夠不夠扣\n\n' +
+  '⚠️送出這段之後，會再讓你用按鈕加運費／折扣／購物金，不用先打在這裡\n\n' +
   '客人姓名：\n' +
-  '商品編號／數量／顏色／尺寸／款式：\n' +
-  '付款方式：';
+  '商品編號／數量／顏色／尺寸／款式：';
+
+// 運費／折扣／購物金 這幾種常用附加項目,不用整段打字,傳完商品清單後用按鈕加,只要選類型+打一個數字。
+const ORDER_EXTRA_TYPES = [
+  { label: '💸 折扣', text: '加折扣', identifier: '折扣' },
+  { label: '🚚 韓國境內運費', text: '加韓國境內運費', identifier: '韓國境內運費' },
+  { label: '🎁 使用購物金', text: '加購物金', identifier: '購物金' },
+];
 
 const ORDER_STEPS = [
   { key: 'orderFields', type: 'orderItems', prompt: ORDER_TEMPLATE_PROMPT },
@@ -831,6 +834,62 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, buildStepMessage('輸入「選單」可以看所有功能分類點選，或直接輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」「美國代購」開始建立報價，輸入「批次貼圖」可以連續傳很多張照片快速建立商品（其他欄位事後回表格補），輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
+  if (session.flow === 'orderExtras') {
+    const extraTypeMap = {};
+    ORDER_EXTRA_TYPES.forEach((t) => { extraTypeMap[t.text] = t; });
+    const extrasMenu = {
+      quickReplyItems: [
+        ...ORDER_EXTRA_TYPES.map((t) => ({ label: t.label, text: t.text })),
+        { label: '➕ 其他運費代碼', text: '加其他運費' },
+        { label: '✅ 都不用了，下一步', text: '不用加了' },
+      ],
+    };
+
+    if (session.step === 'awaitAmount') {
+      const num = Number(text.replace(/[^\d.-]/g, ''));
+      if (!text || isNaN(num) || num === 0) {
+        return client.replyMessage(event.replyToken, buildStepMessage('請輸入金額數字就好（不用打正負號），例如：100'));
+      }
+      const identifier = session.data.pendingExtraIdentifier;
+      session.data.items = session.data.items || [];
+      session.data.items.push({ identifier, quantity: -Math.abs(num), color: null, size: null, style: null });
+      delete session.step;
+      delete session.data.pendingExtraIdentifier;
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${identifier}」-${Math.abs(num)}✅\n還要加運費／折扣／購物金嗎？`, extrasMenu));
+    }
+
+    if (session.step === 'awaitOtherFee') {
+      const item = parseOrderItemLine(text);
+      if (!item) {
+        return client.replyMessage(event.replyToken, buildStepMessage('格式不對，請照「代碼／數量」輸入，例如：賣貨便_免運／1'));
+      }
+      session.data.items = session.data.items || [];
+      session.data.items.push(item);
+      delete session.step;
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${item.identifier}」✅\n還要加運費／折扣／購物金嗎？`, extrasMenu));
+    }
+
+    if (text === '不用加了') {
+      session.flow = 'order';
+      session.stepIndex = 1; // ORDER_STEPS[1] = 已收款,商品/運費/折扣/購物金都收完了,問完收款狀態就可以送出
+      const nextStep = ORDER_STEPS[session.stepIndex];
+      return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(nextStep, session), nextStep));
+    }
+
+    if (text === '加其他運費') {
+      session.step = 'awaitOtherFee';
+      return client.replyMessage(event.replyToken, buildStepMessage('請輸入運費代碼與數量，例如：賣貨便_免運／1'));
+    }
+
+    if (extraTypeMap[text]) {
+      session.step = 'awaitAmount';
+      session.data.pendingExtraIdentifier = extraTypeMap[text].identifier;
+      return client.replyMessage(event.replyToken, buildStepMessage(`請輸入「${extraTypeMap[text].identifier}」的金額數字就好（不用打正負號），例如：100`));
+    }
+
+    return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕', extrasMenu));
+  }
+
   if (session.flow === 'batchPhotoSelect') {
     const batchFlowMap = {
       '批次-韓國': 'koreaKrw',
@@ -1084,6 +1143,10 @@ async function handleEvent(event) {
     } else if (currentStep.type === 'orderItems') {
       const parsed = parseOrderTemplate(text);
       Object.assign(session.data, parsed);
+      session.flow = 'orderExtras'; // 商品清單收好之後,先進小流程用按鈕加運費/折扣/購物金,不直接走下一步(已收款)
+      return client.replyMessage(event.replyToken, buildStepMessage('商品清單收到了✅\n要加運費／折扣／購物金嗎？', {
+        quickReplyItems: [...ORDER_EXTRA_TYPES.map((t) => ({ label: t.label, text: t.text })), { label: '➕ 其他運費代碼', text: '加其他運費' }, { label: '✅ 都不用了，下一步', text: '不用加了' }],
+      }));
     } else if (currentStep.type === 'template') {
       const dynDefaults = currentStep.dynamicDefaultsFn ? currentStep.dynamicDefaultsFn(session) : {};
       const parsed = parseTemplate(text, currentStep.fields, dynDefaults);
