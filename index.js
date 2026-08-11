@@ -814,6 +814,10 @@ async function handleEvent(event) {
 
   if (session.flow === 'batchPhoto') {
     if (text === '完成') {
+      const pending = session.data.pending || 0;
+      if (pending > 0) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`還有 ${pending} 張照片處理中，請稍等幾秒後再輸入一次「完成」。`));
+      }
       const finalCount = session.data.count;
       const ids = session.data.productIds;
       sessions.delete(userId);
@@ -830,19 +834,19 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, buildStepMessage('請傳送商品照片📷，全部傳完後輸入「完成」結束。'));
     }
 
+    session.data.pending = (session.data.pending || 0) + 1; // 在任何await之前先計數,確保「完成」進來時看得到「還有幾張在處理」
     try {
       const base64 = await getLineImageBase64(event.message.id);
-      const imagePayload = {};
-      try {
-        imagePayload.imageUrl = await uploadImageToDrive(base64);
-      } catch (uploadErr) {
-        imagePayload.imageBase64 = base64;
-      }
-      const result = await submitBatchAddImage(session.data.targetFlow, imagePayload);
+      // 批次貼圖只有圖片這一個輸入,不像其他報價流程後面還有好幾步可以讓「先上傳圖片」的空檔被利用到,
+      // 所以這裡直接把 base64 一次送給 batchAddImage,讓 Apps Script 那邊一次完成上傳+寫入,
+      // 不要像其他流程一樣先呼叫 uploadImageToDrive 拿網址、再呼叫一次寫入,省掉一次 Apps Script 來回的等待時間。
+      const result = await submitBatchAddImage(session.data.targetFlow, { imageBase64: base64 });
       session.data.count += 1;
       session.data.productIds.push(result.productId);
+      session.data.pending -= 1;
       return client.replyMessage(event.replyToken, buildStepMessage(`✅ 第${session.data.count}張已新增（商品編號：${result.productId}）`));
     } catch (err) {
+      session.data.pending -= 1;
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張新增失敗：${err.message}\n可以重新傳一次這張，不影響前面已新增的。`));
     }
   }
