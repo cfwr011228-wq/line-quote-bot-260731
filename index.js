@@ -702,7 +702,7 @@ async function handleEvent(event) {
     }));
   }
 
-  if (text === '報價選單') {
+  if (text === '報價選單' || text === '報價') {
     return client.replyMessage(event.replyToken, buildStepMessage('要建立哪一種報價？', {
       quickReplyItems: [
         { label: '🤝 同行報價', text: '同行報價' },
@@ -715,7 +715,7 @@ async function handleEvent(event) {
     }));
   }
 
-  if (text === '訂單選單') {
+  if (text === '訂單選單' || text === '訂單') {
     return client.replyMessage(event.replyToken, buildStepMessage('要做什麼訂單相關的事？', {
       quickReplyItems: [
         { label: '🛒 新增訂單', text: '新增訂單' },
@@ -725,7 +725,7 @@ async function handleEvent(event) {
     }));
   }
 
-  if (text === '管理選單') {
+  if (text === '管理選單' || text === '管理') {
     return client.replyMessage(event.replyToken, buildStepMessage('要修改什麼？', {
       quickReplyItems: [
         { label: '✏️ 改報價', text: '改報價' },
