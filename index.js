@@ -571,8 +571,20 @@ const ORDER_TEMPLATE_PROMPT =
   '客人姓名：\n' +
   '商品編號／數量／顏色／尺寸／款式：';
 
-// 運費／折扣／購物金 這幾種常用附加項目,不用整段打字,傳完商品清單後用按鈕加,只要選類型+打一個數字。
-const ORDER_EXTRA_TYPES = [
+// 常用出貨方式,點下去直接加,不用打金額(金額查運費代碼表)
+const ORDER_EXTRA_PRESETS = [
+  { label: '📦 賣貨便_免運', text: '加賣貨便免運', identifier: '賣貨便_免運' },
+  { label: '📦 賣貨便_預留款', text: '加賣貨便預留款', identifier: '賣貨便_預留款' },
+];
+// 收在「其他」按鈕裡的出貨方式,一樣點了直接加、不用打金額
+const ORDER_EXTRA_OTHER_PRESETS = [
+  { label: '🚛 宅配', text: '加宅配', identifier: '宅配' },
+  { label: '🚛 宅配_免運', text: '加宅配免運', identifier: '宅配_免運' },
+];
+// 面交需要另外選是哪一位
+const MEETUP_PEOPLE = ['小芳', '新竹好市多', '竹北享平方', '宛柔'];
+// 收在「其他」按鈕裡,選了才問金額
+const ORDER_EXTRA_OTHER_TYPES = [
   { label: '💸 折扣', text: '加折扣', identifier: '折扣' },
   { label: '🚚 韓國境內運費', text: '加韓國境內運費', identifier: '韓國境內運費' },
   { label: '🎁 使用購物金', text: '加購物金', identifier: '購物金' },
@@ -835,16 +847,33 @@ async function handleEvent(event) {
   }
 
   if (session.flow === 'orderExtras') {
-    const extraTypeMap = {};
-    ORDER_EXTRA_TYPES.forEach((t) => { extraTypeMap[t.text] = t; });
-    const extrasMenu = {
+    const presetMap = {};
+    ORDER_EXTRA_PRESETS.forEach((t) => { presetMap[t.text] = t; });
+    ORDER_EXTRA_OTHER_PRESETS.forEach((t) => { presetMap[t.text] = t; }); // 宅配/宅配免運也是點了直接加,跟賣貨便同一套邏輯
+    const otherTypeMap = {};
+    ORDER_EXTRA_OTHER_TYPES.forEach((t) => { otherTypeMap[t.text] = t; });
+
+    const mainMenu = {
       quickReplyItems: [
-        ...ORDER_EXTRA_TYPES.map((t) => ({ label: t.label, text: t.text })),
-        { label: '➕ 其他運費代碼', text: '加其他運費' },
+        ...ORDER_EXTRA_PRESETS.map((t) => ({ label: t.label, text: t.text })),
+        { label: '🤝 面交', text: '加面交' },
+        { label: '➕ 其他', text: '其他項目' },
         { label: '✅ 都不用了，下一步', text: '不用加了' },
       ],
     };
+    const otherMenu = {
+      quickReplyItems: [
+        ...ORDER_EXTRA_OTHER_PRESETS.map((t) => ({ label: t.label, text: t.text })),
+        ...ORDER_EXTRA_OTHER_TYPES.map((t) => ({ label: t.label, text: t.text })),
+        { label: '🔧 其他運費代碼', text: '加其他運費' },
+        { label: '↩️ 返回', text: '返回主選單' },
+      ],
+    };
+    const meetupMenu = {
+      quickReplyItems: MEETUP_PEOPLE.map((p) => ({ label: p, text: p })),
+    };
 
+    // 等待輸入折扣/韓國境內運費/購物金的金額
     if (session.step === 'awaitAmount') {
       const num = Number(text.replace(/[^\d.-]/g, ''));
       if (!text || isNaN(num) || num === 0) {
@@ -855,9 +884,10 @@ async function handleEvent(event) {
       session.data.items.push({ identifier, quantity: -Math.abs(num), color: null, size: null, style: null });
       delete session.step;
       delete session.data.pendingExtraIdentifier;
-      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${identifier}」-${Math.abs(num)}✅\n還要加運費／折扣／購物金嗎？`, extrasMenu));
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${identifier}」-${Math.abs(num)}✅\n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
+    // 等待輸入自訂運費代碼
     if (session.step === 'awaitOtherFee') {
       const item = parseOrderItemLine(text);
       if (!item) {
@@ -866,7 +896,18 @@ async function handleEvent(event) {
       session.data.items = session.data.items || [];
       session.data.items.push(item);
       delete session.step;
-      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${item.identifier}」✅\n還要加運費／折扣／購物金嗎？`, extrasMenu));
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${item.identifier}」✅\n還要加運費／出貨方式嗎？`, mainMenu));
+    }
+
+    // 等待選面交的人
+    if (session.step === 'awaitMeetupPerson') {
+      if (!MEETUP_PEOPLE.includes(text)) {
+        return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選人', meetupMenu));
+      }
+      session.data.items = session.data.items || [];
+      session.data.items.push({ identifier: '面交', quantity: 0, note: text, color: null, size: null, style: null });
+      delete session.step;
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「面交（${text}）」✅\n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
     if (text === '不用加了') {
@@ -876,18 +917,38 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(nextStep, session), nextStep));
     }
 
+    if (text === '返回主選單') {
+      return client.replyMessage(event.replyToken, buildStepMessage('要加運費／出貨方式嗎？', mainMenu));
+    }
+
+    if (text === '其他項目') {
+      return client.replyMessage(event.replyToken, buildStepMessage('要加哪一種？', otherMenu));
+    }
+
+    if (text === '加面交') {
+      session.step = 'awaitMeetupPerson';
+      return client.replyMessage(event.replyToken, buildStepMessage('請選擇是哪一位面交', meetupMenu));
+    }
+
     if (text === '加其他運費') {
       session.step = 'awaitOtherFee';
       return client.replyMessage(event.replyToken, buildStepMessage('請輸入運費代碼與數量，例如：賣貨便_免運／1'));
     }
 
-    if (extraTypeMap[text]) {
-      session.step = 'awaitAmount';
-      session.data.pendingExtraIdentifier = extraTypeMap[text].identifier;
-      return client.replyMessage(event.replyToken, buildStepMessage(`請輸入「${extraTypeMap[text].identifier}」的金額數字就好（不用打正負號），例如：100`));
+    if (presetMap[text]) {
+      // 賣貨便免運/預留款:直接加,不用問金額,運費代碼表裡已經有對應金額
+      session.data.items = session.data.items || [];
+      session.data.items.push({ identifier: presetMap[text].identifier, quantity: 1, color: null, size: null, style: null });
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${presetMap[text].identifier}」✅\n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
-    return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕', extrasMenu));
+    if (otherTypeMap[text]) {
+      session.step = 'awaitAmount';
+      session.data.pendingExtraIdentifier = otherTypeMap[text].identifier;
+      return client.replyMessage(event.replyToken, buildStepMessage(`請輸入「${otherTypeMap[text].identifier}」的金額數字就好（不用打正負號），例如：100`));
+    }
+
+    return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕', mainMenu));
   }
 
   if (session.flow === 'batchPhotoSelect') {
@@ -1144,8 +1205,13 @@ async function handleEvent(event) {
       const parsed = parseOrderTemplate(text);
       Object.assign(session.data, parsed);
       session.flow = 'orderExtras'; // 商品清單收好之後,先進小流程用按鈕加運費/折扣/購物金,不直接走下一步(已收款)
-      return client.replyMessage(event.replyToken, buildStepMessage('商品清單收到了✅\n要加運費／折扣／購物金嗎？', {
-        quickReplyItems: [...ORDER_EXTRA_TYPES.map((t) => ({ label: t.label, text: t.text })), { label: '➕ 其他運費代碼', text: '加其他運費' }, { label: '✅ 都不用了，下一步', text: '不用加了' }],
+      return client.replyMessage(event.replyToken, buildStepMessage('商品清單收到了✅\n要加運費／出貨方式嗎？', {
+        quickReplyItems: [
+          ...ORDER_EXTRA_PRESETS.map((t) => ({ label: t.label, text: t.text })),
+          { label: '🤝 面交', text: '加面交' },
+          { label: '➕ 其他', text: '其他項目' },
+          { label: '✅ 都不用了，下一步', text: '不用加了' },
+        ],
       }));
     } else if (currentStep.type === 'template') {
       const dynDefaults = currentStep.dynamicDefaultsFn ? currentStep.dynamicDefaultsFn(session) : {};
