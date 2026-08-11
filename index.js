@@ -592,18 +592,6 @@ const ORDER_EXTRA_OTHER_TYPES = [
 
 const ORDER_STEPS = [
   { key: 'orderFields', type: 'orderItems', prompt: ORDER_TEMPLATE_PROMPT },
-  {
-    key: 'received',
-    quickReplyItems: [
-      { label: '✅ 已收款', text: '已收款' },
-      { label: '⏳ 未收款', text: '未收款' },
-    ],
-    prompt: '請問已經收款了嗎?',
-    parse: (text) => {
-      if (text !== '已收款' && text !== '未收款') throw new Error('請點選下方選單');
-      return text === '已收款';
-    },
-  },
 ];
 
 const FLOWS = {
@@ -899,22 +887,19 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${item.identifier}」✅\n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
-    // 等待選面交的人
+    // 等待選面交的人:直接把人名當識別碼加入,運費代碼表裡本來就有「小芳」「新竹好市多」「竹北享平方」「宛柔」這幾個代碼(金額0元)
     if (session.step === 'awaitMeetupPerson') {
       if (!MEETUP_PEOPLE.includes(text)) {
         return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選人', meetupMenu));
       }
       session.data.items = session.data.items || [];
-      session.data.items.push({ identifier: '面交', quantity: 0, note: text, color: null, size: null, style: null });
+      session.data.items.push({ identifier: text, quantity: 1, color: null, size: null, style: null });
       delete session.step;
       return client.replyMessage(event.replyToken, buildStepMessage(`已加入「面交（${text}）」✅\n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
     if (text === '不用加了') {
-      session.flow = 'order';
-      session.stepIndex = 1; // ORDER_STEPS[1] = 已收款,商品/運費/折扣/購物金都收完了,問完收款狀態就可以送出
-      const nextStep = ORDER_STEPS[session.stepIndex];
-      return client.replyMessage(event.replyToken, buildStepMessage(stepPrompt(nextStep, session), nextStep));
+      return finalizeOrder(session, event, userId);
     }
 
     if (text === '返回主選單') {
@@ -1298,6 +1283,26 @@ async function handleEvent(event) {
   } catch (err) {
     return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
   }
+}
+
+// 新增訂單:加完運費/折扣/購物金之後直接送出,不再另外問已收款/未收款(預設未收款,之後用「收款」流程另外標記)
+async function finalizeOrder(session, event, userId) {
+  if (session.data.received === undefined) session.data.received = false;
+  const dryRunResult = await submitToAppsScript('order', session.data, true);
+  const finalData = session.data;
+  sessions.delete(userId);
+  await client.replyMessage(event.replyToken, buildStepMessage(buildQuoteMessage('order', finalData, dryRunResult)));
+
+  submitToAppsScript('order', finalData, false)
+    .then((result) => {
+      return client.pushMessage(userId, [
+        buildStepMessage('✅ 已成立\n訂單編號⬇️'),
+        buildStepMessage(result.orders.map((o) => o.orderId).join('、')),
+      ]);
+    })
+    .catch((err) => {
+      return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
+    });
 }
 
 async function submitToAppsScript(flow, data, dryRun) {
