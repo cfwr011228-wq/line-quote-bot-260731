@@ -692,6 +692,48 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, buildStepMessage('已取消本次流程。輸入「同行報價」可重新開始。'));
   }
 
+  if (text === '選單' || text === '功能' || text === 'menu') {
+    return client.replyMessage(event.replyToken, buildStepMessage('請選擇要做什麼', {
+      quickReplyItems: [
+        { label: '🧾 報價', text: '報價選單' },
+        { label: '📦 訂單', text: '訂單選單' },
+        { label: '🛠️ 管理', text: '管理選單' },
+      ],
+    }));
+  }
+
+  if (text === '報價選單') {
+    return client.replyMessage(event.replyToken, buildStepMessage('要建立哪一種報價？', {
+      quickReplyItems: [
+        { label: '🤝 同行報價', text: '同行報價' },
+        { label: '🇰🇷 韓國代購', text: '韓國代購' },
+        { label: '🛬 線上免稅店', text: '線上免稅店' },
+        { label: '🏬 實體免稅店', text: '實體免稅店' },
+        { label: '🇺🇸 美國代購', text: '美國代購' },
+        { label: '📷 批次貼圖', text: '批次貼圖' },
+      ],
+    }));
+  }
+
+  if (text === '訂單選單') {
+    return client.replyMessage(event.replyToken, buildStepMessage('要做什麼訂單相關的事？', {
+      quickReplyItems: [
+        { label: '🛒 新增訂單', text: '新增訂單' },
+        { label: '💰 收款', text: '收款' },
+        { label: '📋 客戶明細', text: '客戶明細' },
+      ],
+    }));
+  }
+
+  if (text === '管理選單') {
+    return client.replyMessage(event.replyToken, buildStepMessage('要修改什麼？', {
+      quickReplyItems: [
+        { label: '✏️ 改報價', text: '改報價' },
+        { label: '✏️ 改利潤', text: '改利潤' },
+      ],
+    }));
+  }
+
   if (text === '同行報價') {
     sessions.set(userId, { flow: 'peerSelect', stepIndex: 0, data: {} });
     return client.replyMessage(
@@ -786,7 +828,7 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價，輸入「批次貼圖」可以連續傳很多張照片快速建立商品（其他欄位事後回表格補），輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「選單」可以看所有功能分類點選，或直接輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」「美國代購」開始建立報價，輸入「批次貼圖」可以連續傳很多張照片快速建立商品（其他欄位事後回表格補），輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
   }
 
   if (session.flow === 'batchPhotoSelect') {
