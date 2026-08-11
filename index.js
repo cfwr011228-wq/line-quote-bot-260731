@@ -569,7 +569,8 @@ const ORDER_TEMPLATE_PROMPT =
   '⚠️顏色／尺寸／款式選填，沒有的話該欄留空或整段不寫都可以\n' +
   '⚠️運費也可以列成一行，識別碼直接打運費代碼表上的代碼（例如「賣貨便_免運／1」）\n' +
   '⚠️折扣列成一行，識別碼打「折扣」，數量直接當金額打負數（例如「折扣／-100」）\n' +
-  '⚠️韓國境內運費也是列成一行，識別碼打「韓國境內運費」，數量直接當金額打負數（例如「韓國境內運費／-70」）\n\n' +
+  '⚠️韓國境內運費也是列成一行，識別碼打「韓國境內運費」，數量直接當金額打負數（例如「韓國境內運費／-70」）\n' +
+  '⚠️客人要用購物金折抵，列成一行，識別碼打「購物金」，數量直接當金額打負數（例如「購物金／-200」），系統會自動檢查餘額夠不夠扣\n\n' +
   '客人姓名：\n' +
   '商品編號／數量／顏色／尺寸／款式：\n' +
   '付款方式：';
@@ -749,6 +750,18 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, startFlowMessages(USA_STEPS, session, [infoMsg]));
   }
 
+  if (text === '批次貼圖') {
+    sessions.set(userId, { flow: 'batchPhotoSelect', data: {} });
+    return client.replyMessage(event.replyToken, buildStepMessage('請選擇要批次貼圖的報價類型', {
+      quickReplyItems: [
+        { label: '🇰🇷 韓國代購', text: '批次-韓國' },
+        { label: '🇰🇷 韓免線上', text: '批次-韓免線上' },
+        { label: '🇰🇷 韓免實體', text: '批次-韓免實體' },
+        { label: '🇺🇸 美國代購', text: '批次-美國' },
+      ],
+    }));
+  }
+
   if (text === '新增訂單') {
     const session = newSession('order');
     sessions.set(userId, session);
@@ -773,7 +786,65 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價，輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」或「美國代購」開始建立報價，輸入「批次貼圖」可以連續傳很多張照片快速建立商品（其他欄位事後回表格補），輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
+  }
+
+  if (session.flow === 'batchPhotoSelect') {
+    const batchFlowMap = {
+      '批次-韓國': 'koreaKrw',
+      '批次-韓免線上': 'dutyFreeOnline',
+      '批次-韓免實體': 'dutyFreePhysical',
+      '批次-美國': 'usa',
+    };
+    if (batchFlowMap[text]) {
+      sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], count: 0, productIds: [] } });
+      return client.replyMessage(event.replyToken, buildStepMessage(
+        `已選擇「${text.replace('批次-', '')}」批次貼圖模式📷\n請開始連續傳送商品照片，每張都會各自新增一筆，傳完後輸入「完成」結束（或輸入「取消」放棄這次）。`
+      ));
+    }
+    return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單', {
+      quickReplyItems: [
+        { label: '🇰🇷 韓國代購', text: '批次-韓國' },
+        { label: '🇰🇷 韓免線上', text: '批次-韓免線上' },
+        { label: '🇰🇷 韓免實體', text: '批次-韓免實體' },
+        { label: '🇺🇸 美國代購', text: '批次-美國' },
+      ],
+    }));
+  }
+
+  if (session.flow === 'batchPhoto') {
+    if (text === '完成') {
+      const finalCount = session.data.count;
+      const ids = session.data.productIds;
+      sessions.delete(userId);
+      if (finalCount === 0) {
+        return client.replyMessage(event.replyToken, buildStepMessage('沒有收到任何照片，批次貼圖已結束。'));
+      }
+      const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
+      return client.replyMessage(event.replyToken, buildStepMessage(
+        `✅ 批次貼圖完成，共新增 ${finalCount} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
+      ));
+    }
+
+    if (event.message.type !== 'image') {
+      return client.replyMessage(event.replyToken, buildStepMessage('請傳送商品照片📷，全部傳完後輸入「完成」結束。'));
+    }
+
+    try {
+      const base64 = await getLineImageBase64(event.message.id);
+      const imagePayload = {};
+      try {
+        imagePayload.imageUrl = await uploadImageToDrive(base64);
+      } catch (uploadErr) {
+        imagePayload.imageBase64 = base64;
+      }
+      const result = await submitBatchAddImage(session.data.targetFlow, imagePayload);
+      session.data.count += 1;
+      session.data.productIds.push(result.productId);
+      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 第${session.data.count}張已新增（商品編號：${result.productId}）`));
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張新增失敗：${err.message}\n可以重新傳一次這張，不影響前面已新增的。`));
+    }
   }
 
   if (session.flow === 'override') {
@@ -1069,6 +1140,24 @@ async function submitToAppsScript(flow, data, dryRun) {
     throw new Error(json.error || '寫入試算表失敗');
   }
   return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
+}
+
+async function submitBatchAddImage(targetFlow, imagePayload) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'batchAddImage', targetFlow, ...imagePayload }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '新增失敗');
+  }
+  return json; // { success, productId }
 }
 
 async function submitOverride(field, productId, value) {
