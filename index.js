@@ -797,9 +797,9 @@ async function handleEvent(event) {
       '批次-美國': 'usa',
     };
     if (batchFlowMap[text]) {
-      sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], count: 0, productIds: [] } });
+      sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], images: [], pending: 0 } });
       return client.replyMessage(event.replyToken, buildStepMessage(
-        `已選擇「${text.replace('批次-', '')}」批次貼圖模式📷\n請開始連續傳送商品照片，每張都會各自新增一筆，傳完後輸入「完成」結束（或輸入「取消」放棄這次）。`
+        `已選擇「${text.replace('批次-', '')}」批次貼圖模式📷\n請開始連續傳送商品照片，會先幫你暫存起來，不會馬上寫進表格，傳完後輸入「完成」才會一次寫入（比較快，也不會互相卡住）。輸入「取消」可以放棄這次。`
       ));
     }
     return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單', {
@@ -816,38 +816,39 @@ async function handleEvent(event) {
     if (text === '完成') {
       const pending = session.data.pending || 0;
       if (pending > 0) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`還有 ${pending} 張照片處理中，請稍等幾秒後再輸入一次「完成」。`));
+        return client.replyMessage(event.replyToken, buildStepMessage(`還有 ${pending} 張照片接收中，請稍等幾秒後再輸入一次「完成」。`));
       }
-      const finalCount = session.data.count;
-      const ids = session.data.productIds;
-      sessions.delete(userId);
-      if (finalCount === 0) {
+      const images = session.data.images;
+      if (images.length === 0) {
+        sessions.delete(userId);
         return client.replyMessage(event.replyToken, buildStepMessage('沒有收到任何照片，批次貼圖已結束。'));
       }
-      const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
-      return client.replyMessage(event.replyToken, buildStepMessage(
-        `✅ 批次貼圖完成，共新增 ${finalCount} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
-      ));
+      sessions.delete(userId); // 先結束session,避免使用者在等待寫入的這幾秒內又傳照片進來卡到舊session
+      try {
+        const result = await submitBatchAddImages(session.data.targetFlow, images);
+        const ids = result.productIds;
+        const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
+        return client.replyMessage(event.replyToken, buildStepMessage(
+          `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
+        ));
+      } catch (err) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}\n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
+      }
     }
 
     if (event.message.type !== 'image') {
-      return client.replyMessage(event.replyToken, buildStepMessage('請傳送商品照片📷，全部傳完後輸入「完成」結束。'));
+      return client.replyMessage(event.replyToken, buildStepMessage('請傳送商品照片📷，全部傳完後輸入「完成」統一寫入表格。'));
     }
 
-    session.data.pending = (session.data.pending || 0) + 1; // 在任何await之前先計數,確保「完成」進來時看得到「還有幾張在處理」
+    session.data.pending = (session.data.pending || 0) + 1; // 在任何await之前先計數,確保「完成」進來時看得到「還有幾張還在接收」
     try {
       const base64 = await getLineImageBase64(event.message.id);
-      // 批次貼圖只有圖片這一個輸入,不像其他報價流程後面還有好幾步可以讓「先上傳圖片」的空檔被利用到,
-      // 所以這裡直接把 base64 一次送給 batchAddImage,讓 Apps Script 那邊一次完成上傳+寫入,
-      // 不要像其他流程一樣先呼叫 uploadImageToDrive 拿網址、再呼叫一次寫入,省掉一次 Apps Script 來回的等待時間。
-      const result = await submitBatchAddImage(session.data.targetFlow, { imageBase64: base64 });
-      session.data.count += 1;
-      session.data.productIds.push(result.productId);
+      session.data.images.push(base64); // 只暫存,不呼叫Apps Script,幾乎不用等
       session.data.pending -= 1;
-      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 第${session.data.count}張已新增（商品編號：${result.productId}）`));
+      return client.replyMessage(event.replyToken, buildStepMessage(`📥 已收到第${session.data.images.length}張（先暫存，尚未寫入表格）`));
     } catch (err) {
       session.data.pending -= 1;
-      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張新增失敗：${err.message}\n可以重新傳一次這張，不影響前面已新增的。`));
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張接收失敗：${err.message}\n可以重新傳一次這張，不影響前面已收到的。`));
     }
   }
 
@@ -1146,11 +1147,11 @@ async function submitToAppsScript(flow, data, dryRun) {
   return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
 }
 
-async function submitBatchAddImage(targetFlow, imagePayload) {
+async function submitBatchAddImages(targetFlow, images) {
   const res = await fetch(APPS_SCRIPT_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'batchAddImage', targetFlow, ...imagePayload }),
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'batchAddImages', targetFlow, images }),
   });
   let json;
   try {
@@ -1159,9 +1160,9 @@ async function submitBatchAddImage(targetFlow, imagePayload) {
     throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
   }
   if (!json.success) {
-    throw new Error(json.error || '新增失敗');
+    throw new Error(json.error || '寫入失敗');
   }
-  return json; // { success, productId }
+  return json; // { success, productIds }
 }
 
 async function submitOverride(field, productId, value) {
