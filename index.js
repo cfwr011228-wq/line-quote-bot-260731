@@ -697,6 +697,15 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, buildStepMessage('已取消本次流程。'));
   }
 
+  if (text === '更新採購表') {
+    try {
+      await submitRebuildProcurement();
+      return client.replyMessage(event.replyToken, buildStepMessage('✅ 採購表已更新完成'));
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 更新失敗：${err.message}`));
+    }
+  }
+
   if (text === '更新營收表') {
     try {
       await submitRebuildRevenue();
@@ -753,6 +762,7 @@ async function handleEvent(event) {
       quickReplyItems: [
         { label: '✏️ 改報價', text: '改報價' },
         { label: '✏️ 改利潤', text: '改利潤' },
+        { label: '📦 更新採購表', text: '更新採購表' },
         { label: '📊 更新營收表', text: '更新營收表' },
       ],
     }));
@@ -1347,6 +1357,24 @@ async function submitToAppsScript(flow, data, dryRun) {
     throw new Error(json.error || '寫入試算表失敗');
   }
   return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
+}
+
+async function submitRebuildProcurement() {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'rebuildProcurement' }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '更新失敗');
+  }
+  return json;
 }
 
 async function submitRebuildRevenue() {
