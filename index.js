@@ -564,10 +564,9 @@ const DUTY_FREE_PHYSICAL_STEPS = [
 const ORDER_TEMPLATE_PROMPT =
   '請複製「客人姓名」以下的部分填寫、回傳\n' +
   '⚠️商品編號請照商品總表上的編號填，系統會自動帶入品牌／名稱／單價\n' +
-  '⚠️可以填很多筆，一行一組，格式：識別碼／數量／顏色／尺寸／款式（用斜線分開）\n' +
+  '⚠️一行一組商品，格式：識別碼／數量／顏色／尺寸／款式（用斜線分開）\n' +
   '⚠️顏色／尺寸／款式選填，沒有的話該欄留空或整段不寫都可以\n' +
-  '⚠️運費也可以列成一行，識別碼直接打運費代碼表上的代碼（例如「賣貨便_免運／1」）\n' +
-  '⚠️送出這段之後，會再讓你用按鈕加運費／折扣／購物金，不用先打在這裡\n\n' +
+  '⚠️運費、折扣、購物金不需在此填寫\n\n' +
   '客人姓名：\n' +
   '商品編號／數量／顏色／尺寸／款式：';
 
@@ -692,7 +691,7 @@ async function handleEvent(event) {
 
   if (text === '取消') {
     sessions.delete(userId);
-    return client.replyMessage(event.replyToken, buildStepMessage('已取消本次流程。輸入「同行報價」可重新開始。'));
+    return client.replyMessage(event.replyToken, buildStepMessage('已取消本次流程。'));
   }
 
   if (text === '選單' || text === '功能' || text === 'menu') {
@@ -831,7 +830,12 @@ async function handleEvent(event) {
 
   const session = sessions.get(userId);
   if (!session) {
-    return client.replyMessage(event.replyToken, buildStepMessage('輸入「選單」可以看所有功能分類點選，或直接輸入「同行報價」「韓國代購」「線上免稅店」「實體免稅店」「美國代購」開始建立報價，輸入「批次貼圖」可以連續傳很多張照片快速建立商品（其他欄位事後回表格補），輸入「新增訂單」建立客人訂單，輸入「收款」標記客人已付款，輸入「客戶明細」查看客人的訂購明細連結，或輸入「改報價」「改利潤」修改已建立的商品。'));
+    return client.replyMessage(event.replyToken, buildStepMessage(
+      '輸入「選單」查看所有功能\n\n' +
+      '📋 報價\n・同行報價\n・韓國代購／線上免稅店／實體免稅店／美國代購\n・批次貼圖\n\n' +
+      '📦 訂單\n・新增訂單\n・收款\n・客戶明細\n\n' +
+      '🛠️ 管理\n・改報價／改利潤'
+    ));
   }
 
   if (session.flow === 'orderExtras') {
