@@ -604,6 +604,9 @@ const FLOWS = {
   order: ORDER_STEPS,
 };
 
+// 保活排程(例如 cron-job.org)呼叫這個路徑就好,單純回應 OK,不會動到任何 LINE 訊息處理邏輯
+app.get('/', (req, res) => res.status(200).send('OK'));
+
 // ------------------- LINE webhook -------------------
 
 app.post('/webhook', line.middleware(config), async (req, res) => {
