@@ -1291,7 +1291,10 @@ async function handleEvent(event) {
     const finalData = session.data;
     const finalFlow = session.flow;
     sessions.delete(userId);
-    const messages = [...extraMessages.map((t) => buildStepMessage(t)), buildStepMessage(buildQuoteMessage(finalFlow, finalData, dryRunResult))];
+    const quoteMessage = finalFlow === 'koreaKrw'
+      ? buildKoreaQuoteFlex(finalData, dryRunResult) // 試做版:韓幣報價改用圖文卡片
+      : buildStepMessage(buildQuoteMessage(finalFlow, finalData, dryRunResult));
+    const messages = [...extraMessages.map((t) => buildStepMessage(t)), quoteMessage];
     if (finalFlow !== 'order') {
       const flag = flagForFlow(finalFlow, finalData);
       messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, dryRunResult.total, finalData.color, finalData.size, finalData.style)));
@@ -1488,6 +1491,61 @@ async function markOrdersPaid(orderIds, paymentMethod) {
 function costLine(result) {
   const sum = result.baseCost + result.shippingCost;
   return `💰 商品成本：${result.baseCost}+${result.shippingCost}=${sum}`;
+}
+
+// 韓幣報價完成的圖文卡片(LINE Flex Message),含商品圖片+條列資訊+報價金額。
+// 之後如果效果好,可以比照這個結構,幫美國/韓免/買手等其他報價類型也做一份。
+function buildKoreaQuoteFlex(data, result) {
+  function row(label, value) {
+    return {
+      type: 'box', layout: 'horizontal', contents: [
+        { type: 'text', text: label, size: 'sm', color: '#999999', flex: 2 },
+        { type: 'text', text: String(value), size: 'sm', color: '#333333', flex: 5, wrap: true },
+      ],
+    };
+  }
+
+  const infoRows = [row('品牌', data.brand), row('名稱', data.name)];
+  if (data.color) infoRows.push(row('顏色', data.color));
+  if (data.size) infoRows.push(row('尺寸', data.size));
+  if (data.style) infoRows.push(row('款式', data.style));
+  infoRows.push(row('購買地點', data.location));
+  infoRows.push(row('重量', data.weight !== null && data.weight !== undefined ? `${data.weight} kg` : '未填（親飛帶回）'));
+  if (data.note) infoRows.push(row('備註', data.note));
+
+  const bubble = {
+    type: 'bubble',
+    hero: data.imageUrl ? {
+      type: 'image', url: data.imageUrl, size: 'full', aspectRatio: '1:1', aspectMode: 'cover',
+    } : undefined,
+    header: {
+      type: 'box', layout: 'vertical', backgroundColor: '#F06292', paddingAll: '16px',
+      contents: [{ type: 'text', text: '✅ 韓幣報價完成', color: '#ffffff', weight: 'bold', size: 'lg' }],
+    },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+      contents: [...infoRows, { type: 'separator', margin: 'md' }],
+    },
+    footer: {
+      type: 'box', layout: 'vertical', backgroundColor: '#FFF0F5', paddingAll: '16px', spacing: 'sm',
+      contents: [
+        {
+          type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '建議報價', size: 'md', color: '#555555' },
+            { type: 'text', text: String(result.total), size: 'xl', weight: 'bold', align: 'end', color: '#F06292' },
+          ],
+        },
+        {
+          type: 'box', layout: 'horizontal', contents: [
+            { type: 'text', text: '商品總成本', size: 'xs', color: '#999999' },
+            { type: 'text', text: `${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`, size: 'xs', align: 'end', color: '#999999' },
+          ],
+        },
+      ],
+    },
+  };
+
+  return { type: 'flex', altText: `✅ 韓幣報價完成：${data.brand} ${data.name} $${result.total}`, contents: bubble };
 }
 
 function buildQuoteMessage(flow, data, result) {
