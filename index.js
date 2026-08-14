@@ -574,6 +574,7 @@ const ORDER_TEMPLATE_PROMPT =
 const ORDER_EXTRA_PRESETS = [
   { label: '📦 賣貨便_免運', text: '加賣貨便免運', identifier: '賣貨便_免運' },
   { label: '📦 賣貨便_預留款', text: '加賣貨便預留款', identifier: '賣貨便_預留款' },
+  { label: '↩️ 賣貨便_退預留款', text: '加賣貨便退預留款', identifier: '賣貨便_退預留款' },
 ];
 // 收在「其他」按鈕裡的出貨方式,一樣點了直接加、不用打金額
 const ORDER_EXTRA_OTHER_PRESETS = [
@@ -715,6 +716,16 @@ async function handleEvent(event) {
     }
   }
 
+  if (text === '收件資料') {
+    sessions.set(userId, { flow: 'shippingInfoSelect', data: {} });
+    return client.replyMessage(event.replyToken, buildStepMessage('請選擇收件方式', {
+      quickReplyItems: [
+        { label: '🏪 7-11', text: '收件-711' },
+        { label: '🚚 宅配', text: '收件-宅配' },
+      ],
+    }));
+  }
+
   if (text === '設定管理員') {
     try {
       await submitSetAdminUserId(userId);
@@ -753,6 +764,7 @@ async function handleEvent(event) {
         { label: '🛒 新增訂單', text: '新增訂單' },
         { label: '💰 收款', text: '收款' },
         { label: '📋 客戶明細', text: '客戶明細' },
+        { label: '📮 收件資料', text: '收件資料' },
       ],
     }));
   }
@@ -868,6 +880,54 @@ async function handleEvent(event) {
       '📦 訂單\n・新增訂單\n・收款\n・客戶明細\n\n' +
       '🛠️ 管理\n・改報價／改利潤\n・更新採購表／更新營收表'
     ));
+  }
+
+  if (session.flow === 'shippingInfoSelect') {
+    if (text === '收件-711' || text === '收件-宅配') {
+      const method = text === '收件-711' ? '7-11' : '宅配';
+      sessions.set(userId, { flow: 'shippingInfo', data: { method } });
+      const template = method === '7-11'
+        ? '請複製「客戶編號」以下的部分填寫、回傳\n⚠️客戶編號請填會員編號（例如 BM250001）\n⚠️沒有要更新的欄位留空就好，留空會直接覆蓋清空原本的資料\n\n客戶編號：\n收件人姓名：\n收件人電話：\n7-11門市店號(6碼)：\n7-11門市名字：\n備註：'
+        : '請複製「客戶編號」以下的部分填寫、回傳\n⚠️客戶編號請填會員編號（例如 BM250001）\n⚠️沒有要更新的欄位留空就好，留空會直接覆蓋清空原本的資料\n\n客戶編號：\n收件人姓名：\n收件人電話：\n地址：\n備註：';
+      return client.replyMessage(event.replyToken, buildStepMessage(template));
+    }
+    return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕', {
+      quickReplyItems: [
+        { label: '🏪 7-11', text: '收件-711' },
+        { label: '🚚 宅配', text: '收件-宅配' },
+      ],
+    }));
+  }
+
+  if (session.flow === 'shippingInfo') {
+    const method = session.data.method;
+    const fields = method === '7-11'
+      ? [
+          { key: 'customerId', label: '客戶編號' },
+          { key: 'name', label: '收件人姓名' },
+          { key: 'phone', label: '收件人電話' },
+          { key: 'storeCode', label: '7-11門市店號' },
+          { key: 'storeName', label: '7-11門市名字' },
+          { key: 'note', label: '備註' },
+        ]
+      : [
+          { key: 'customerId', label: '客戶編號' },
+          { key: 'name', label: '收件人姓名' },
+          { key: 'phone', label: '收件人電話' },
+          { key: 'address', label: '地址' },
+          { key: 'note', label: '備註' },
+        ];
+    const parsed = parseShippingTemplate(text, fields);
+    if (!parsed.customerId) {
+      return client.replyMessage(event.replyToken, buildStepMessage('沒有偵測到「客戶編號」，請確認格式正確後重新貼上（或輸入「取消」放棄這次）。'));
+    }
+    sessions.delete(userId);
+    try {
+      await submitUpdateCustomerShipping({ ...parsed, method });
+      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 已更新「${parsed.customerId}」的收件資料`));
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 更新失敗：${err.message}`));
+    }
   }
 
   if (session.flow === 'orderExtras') {
@@ -1363,6 +1423,40 @@ async function submitToAppsScript(flow, data, dryRun) {
     throw new Error(json.error || '寫入試算表失敗');
   }
   return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
+}
+
+// 逐行找「標籤：內容」這種格式,抓出每個欄位的值(標籤後面可以是全形或半形冒號)
+function parseShippingTemplate(text, fields) {
+  const lines = text.split('\n');
+  const result = {};
+  fields.forEach((f) => {
+    const line = lines.find((l) => l.trim().startsWith(f.label));
+    if (!line) {
+      result[f.key] = '';
+      return;
+    }
+    const colonIdx = line.indexOf('：') !== -1 ? line.indexOf('：') : line.indexOf(':');
+    result[f.key] = colonIdx !== -1 ? line.slice(colonIdx + 1).trim() : '';
+  });
+  return result;
+}
+
+async function submitUpdateCustomerShipping(data) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'updateCustomerShipping', ...data }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '更新失敗');
+  }
+  return json;
 }
 
 async function submitRebuildProcurement() {
