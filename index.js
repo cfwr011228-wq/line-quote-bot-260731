@@ -980,7 +980,7 @@ async function handleEvent(event) {
       '批次-美國': 'usa',
     };
     if (batchFlowMap[text]) {
-      sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], images: [], pending: 0 } });
+      sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], imageSlots: [], pending: 0 } });
       return client.replyMessage(event.replyToken, buildStepMessage(
         `已選擇「${text.replace('批次-', '')}」批次貼圖模式📷\n請開始連續傳送商品照片，會先幫你暫存起來，不會馬上寫進表格，傳完後輸入「完成」才會一次寫入（比較快，也不會互相卡住）。輸入「取消」可以放棄這次。`
       ));
@@ -1001,7 +1001,7 @@ async function handleEvent(event) {
       if (pending > 0) {
         return client.replyMessage(event.replyToken, buildStepMessage(`還有 ${pending} 張照片接收中，請稍等幾秒後再輸入一次「完成」。`));
       }
-      const images = session.data.images;
+      const images = session.data.imageSlots.filter((v) => v !== null); // 依原始傳送順序排好,過濾掉下載失敗的空位
       if (images.length === 0) {
         sessions.delete(userId);
         return client.replyMessage(event.replyToken, buildStepMessage('沒有收到任何照片，批次貼圖已結束。'));
@@ -1023,12 +1023,15 @@ async function handleEvent(event) {
       return client.replyMessage(event.replyToken, buildStepMessage('請傳送商品照片📷，全部傳完後輸入「完成」統一寫入表格。'));
     }
 
+    session.data.imageSlots = session.data.imageSlots || [];
+    const slotIndex = session.data.imageSlots.length; // 在任何await之前,先卡住這張照片在陣列裡的固定位置,不管之後下載快慢,順序都不會亂
+    session.data.imageSlots.push(null); // 先佔位,下載完再回填,下載失敗就維持null(最後會被濾掉)
     session.data.pending = (session.data.pending || 0) + 1; // 在任何await之前先計數,確保「完成」進來時看得到「還有幾張還在接收」
     try {
       const base64 = await getLineImageBase64(event.message.id);
-      session.data.images.push(base64); // 只暫存,不呼叫Apps Script,幾乎不用等
+      session.data.imageSlots[slotIndex] = base64; // 回填到原本卡住的位置,不是push到陣列尾端
       session.data.pending -= 1;
-      return client.replyMessage(event.replyToken, buildStepMessage(`📥 已收到第${session.data.images.length}張（先暫存，尚未寫入表格）`));
+      return client.replyMessage(event.replyToken, buildStepMessage(`📥 已收到第${slotIndex + 1}張（先暫存，尚未寫入表格）`));
     } catch (err) {
       session.data.pending -= 1;
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張接收失敗：${err.message}\n可以重新傳一次這張，不影響前面已收到的。`));
@@ -1519,7 +1522,7 @@ function buildKoreaQuoteFlex(data, result) {
       type: 'image', url: data.imageUrl, size: 'full', aspectRatio: '1:1', aspectMode: 'cover',
     } : undefined,
     header: {
-      type: 'box', layout: 'vertical', backgroundColor: '#F06292', paddingAll: '16px',
+      type: 'box', layout: 'vertical', backgroundColor: '#A9825F', paddingAll: '16px',
       contents: [{ type: 'text', text: '✅ 韓幣報價完成', color: '#ffffff', weight: 'bold', size: 'lg' }],
     },
     body: {
@@ -1527,12 +1530,12 @@ function buildKoreaQuoteFlex(data, result) {
       contents: [...infoRows, { type: 'separator', margin: 'md' }],
     },
     footer: {
-      type: 'box', layout: 'vertical', backgroundColor: '#FFF0F5', paddingAll: '16px', spacing: 'sm',
+      type: 'box', layout: 'vertical', backgroundColor: '#F5EBDD', paddingAll: '16px', spacing: 'sm',
       contents: [
         {
           type: 'box', layout: 'horizontal', contents: [
-            { type: 'text', text: '建議報價', size: 'md', color: '#555555' },
-            { type: 'text', text: String(result.total), size: 'xl', weight: 'bold', align: 'end', color: '#F06292' },
+            { type: 'text', text: '建議報價', size: 'md', color: '#7A5C3E' },
+            { type: 'text', text: String(result.total), size: 'xl', weight: 'bold', align: 'end', color: '#A9825F' },
           ],
         },
         {
