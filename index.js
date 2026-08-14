@@ -733,16 +733,6 @@ async function handleEventInner(event) {
   }
 
   if (text === '收件資料') {
-    sessions.set(userId, { flow: 'shippingInfoSelect', data: {} });
-    return client.replyMessage(event.replyToken, buildStepMessage('請選擇收件方式', {
-      quickReplyItems: [
-        { label: '🏪 7-11', text: '收件-711' },
-        { label: '🚚 宅配', text: '收件-宅配' },
-      ],
-    }));
-  }
-
-  if (text === '收件資料') {
     sessions.set(userId, { flow: 'shippingInfo', data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage(
       '請貼上「會員編號」+客人回傳的收件資料（客人回傳的內容整段照貼即可，不用改格式，系統會自動判斷是7-11還是宅配）\n\n例如：\nBM250005\n收件人姓名：王大明\n收件人電話：0912345678\n7-11門市店號(6碼)：952626\n7-11門市名字：苗碩\n備註：'
@@ -900,7 +890,7 @@ async function handleEventInner(event) {
     return client.replyMessage(event.replyToken, buildStepMessage(
       '輸入「選單」查看所有功能\n\n' +
       '📋 報價\n・同行報價\n・韓國代購／線上免稅店／實體免稅店／美國代購\n・批次貼圖\n\n' +
-      '📦 訂單\n・新增訂單\n・收款\n・客戶明細\n\n' +
+      '📦 訂單\n・新增訂單\n・收款\n・客戶明細\n・收件資料\n\n' +
       '🛠️ 管理\n・改報價／改利潤\n・更新採購表／更新營收表'
     ));
   }
