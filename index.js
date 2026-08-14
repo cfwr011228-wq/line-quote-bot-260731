@@ -726,6 +726,13 @@ async function handleEvent(event) {
     }));
   }
 
+  if (text === '收件資料') {
+    sessions.set(userId, { flow: 'shippingInfo', data: {} });
+    return client.replyMessage(event.replyToken, buildStepMessage(
+      '請貼上「會員編號」+客人回傳的收件資料（客人回傳的內容整段照貼即可，不用改格式，系統會自動判斷是7-11還是宅配）\n\n例如：\nBM250005\n收件人姓名：王大明\n收件人電話：0912345678\n7-11門市店號(6碼)：952626\n7-11門市名字：苗碩\n備註：'
+    ));
+  }
+
   if (text === '設定管理員') {
     try {
       await submitSetAdminUserId(userId);
@@ -882,49 +889,16 @@ async function handleEvent(event) {
     ));
   }
 
-  if (session.flow === 'shippingInfoSelect') {
-    if (text === '收件-711' || text === '收件-宅配') {
-      const method = text === '收件-711' ? '7-11' : '宅配';
-      sessions.set(userId, { flow: 'shippingInfo', data: { method } });
-      const template = method === '7-11'
-        ? '請複製「客戶編號」以下的部分填寫、回傳\n⚠️客戶編號請填會員編號（例如 BM250001）\n⚠️沒有要更新的欄位留空就好，留空會直接覆蓋清空原本的資料\n\n客戶編號：\n收件人姓名：\n收件人電話：\n7-11門市店號(6碼)：\n7-11門市名字：\n備註：'
-        : '請複製「客戶編號」以下的部分填寫、回傳\n⚠️客戶編號請填會員編號（例如 BM250001）\n⚠️沒有要更新的欄位留空就好，留空會直接覆蓋清空原本的資料\n\n客戶編號：\n收件人姓名：\n收件人電話：\n地址：\n備註：';
-      return client.replyMessage(event.replyToken, buildStepMessage(template));
-    }
-    return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕', {
-      quickReplyItems: [
-        { label: '🏪 7-11', text: '收件-711' },
-        { label: '🚚 宅配', text: '收件-宅配' },
-      ],
-    }));
-  }
-
   if (session.flow === 'shippingInfo') {
-    const method = session.data.method;
-    const fields = method === '7-11'
-      ? [
-          { key: 'customerId', label: '客戶編號' },
-          { key: 'name', label: '收件人姓名' },
-          { key: 'phone', label: '收件人電話' },
-          { key: 'storeCode', label: '7-11門市店號' },
-          { key: 'storeName', label: '7-11門市名字' },
-          { key: 'note', label: '備註' },
-        ]
-      : [
-          { key: 'customerId', label: '客戶編號' },
-          { key: 'name', label: '收件人姓名' },
-          { key: 'phone', label: '收件人電話' },
-          { key: 'address', label: '地址' },
-          { key: 'note', label: '備註' },
-        ];
-    const parsed = parseShippingTemplate(text, fields);
-    if (!parsed.customerId) {
-      return client.replyMessage(event.replyToken, buildStepMessage('沒有偵測到「客戶編號」，請確認格式正確後重新貼上（或輸入「取消」放棄這次）。'));
+    const parsed = parseShippingPaste(text);
+    if (!parsed || !parsed.customerId) {
+      return client.replyMessage(event.replyToken, buildStepMessage('沒有偵測到會員編號，請確認第一行是會員編號（例如 BM250005），重新貼上（或輸入「取消」放棄這次）。'));
     }
     sessions.delete(userId);
     try {
-      await submitUpdateCustomerShipping({ ...parsed, method });
-      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 已更新「${parsed.customerId}」的收件資料`));
+      await submitUpdateCustomerShipping(parsed);
+      const methodLabel = parsed.method === '7-11' ? '7-11' : parsed.method === '宅配' ? '宅配' : '（未偵測到取貨方式，麻煩確認訊息裡有沒有「7-11門市店號」或「地址」）';
+      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 已更新「${parsed.customerId}」的收件資料\n取貨方式：${methodLabel}`));
     } catch (err) {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 更新失敗：${err.message}`));
     }
@@ -1425,20 +1399,51 @@ async function submitToAppsScript(flow, data, dryRun) {
   return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
 }
 
-// 逐行找「標籤：內容」這種格式,抓出每個欄位的值(標籤後面可以是全形或半形冒號)
-function parseShippingTemplate(text, fields) {
-  const lines = text.split('\n');
-  const result = {};
-  fields.forEach((f) => {
-    const line = lines.find((l) => l.trim().startsWith(f.label));
-    if (!line) {
-      result[f.key] = '';
-      return;
-    }
+// 第一行是會員編號(可以直接純編號,或還是打「客戶編號：xxx」都吃得到),
+// 下面逐行找「標籤：內容」抓出各欄位,並依訊息裡有沒有「7-11門市店號」或「地址」這個標籤,自動判斷取貨方式。
+function parseShippingPaste(text) {
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  if (lines.length === 0) return null;
+
+  function stripLabel(line, labels) {
     const colonIdx = line.indexOf('：') !== -1 ? line.indexOf('：') : line.indexOf(':');
-    result[f.key] = colonIdx !== -1 ? line.slice(colonIdx + 1).trim() : '';
-  });
-  return result;
+    if (colonIdx === -1) return null;
+    const label = line.slice(0, colonIdx).trim();
+    if (labels.some((l) => label.startsWith(l))) return line.slice(colonIdx + 1).trim();
+    return null;
+  }
+
+  const firstLineAsId = stripLabel(lines[0], ['客戶編號', '會員編號']);
+  const customerId = firstLineAsId !== null ? firstLineAsId : lines[0];
+  const rest = lines.slice(1);
+
+  function findField(labels) {
+    for (const line of rest) {
+      const value = stripLabel(line, labels);
+      if (value !== null) return value;
+    }
+    return '';
+  }
+  function hasLabel(labels) {
+    return rest.some((line) => {
+      const colonIdx = line.indexOf('：') !== -1 ? line.indexOf('：') : line.indexOf(':');
+      if (colonIdx === -1) return false;
+      const label = line.slice(0, colonIdx).trim();
+      return labels.some((l) => label.startsWith(l));
+    });
+  }
+
+  const name = findField(['收件人姓名']);
+  const phone = findField(['收件人電話']);
+  const storeCode = findField(['7-11門市店號']);
+  const storeName = findField(['7-11門市名字']);
+  const address = findField(['地址']);
+  const note = findField(['備註']);
+  let method = '';
+  if (hasLabel(['7-11門市店號'])) method = '7-11';
+  else if (hasLabel(['地址'])) method = '宅配';
+
+  return { customerId, name, phone, storeCode, storeName, address, note, method };
 }
 
 async function submitUpdateCustomerShipping(data) {
