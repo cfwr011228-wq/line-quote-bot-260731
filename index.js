@@ -689,6 +689,22 @@ function startFlowMessages(steps, session, infoMessages) {
 }
 
 async function handleEvent(event) {
+  try {
+    return await handleEventInner(event);
+  } catch (err) {
+    console.error(err);
+    // 安全網:任何沒被個別流程接住的錯誤,都在這裡攔下來回一句話,不要讓使用者完全沒反應、一直空等
+    if (event.type === 'message' && event.replyToken) {
+      try {
+        return await client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 發生非預期的錯誤：${err.message}\n請重新操作一次，或輸入「取消」重來。`));
+      } catch (replyErr) {
+        console.error(replyErr); // 連回覆都失敗就真的沒辦法了,至少記錄下來
+      }
+    }
+  }
+}
+
+async function handleEventInner(event) {
   if (event.type !== 'message') return;
   const userId = event.source.userId;
   const text = event.message.type === 'text' ? event.message.text.trim() : null;
@@ -1364,7 +1380,15 @@ async function handleEvent(event) {
 // 新增訂單:加完運費/折扣/購物金之後直接送出,不再另外問已收款/未收款(預設未收款,之後用「收款」流程另外標記)
 async function finalizeOrder(session, event, userId) {
   if (session.data.received === undefined) session.data.received = false;
-  const dryRunResult = await submitToAppsScript('order', session.data, true);
+
+  let dryRunResult;
+  try {
+    dryRunResult = await submitToAppsScript('order', session.data, true);
+  } catch (err) {
+    sessions.delete(userId);
+    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 試算失敗：${err.message}\n這筆還沒有寫入表格，請確認商品編號/運費代碼是否正確後，重新用「新增訂單」再送一次。`));
+  }
+
   const finalData = session.data;
   sessions.delete(userId);
   await client.replyMessage(event.replyToken, buildStepMessage(buildQuoteMessage('order', finalData, dryRunResult)));
