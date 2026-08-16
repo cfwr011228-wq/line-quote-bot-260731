@@ -9,6 +9,13 @@ const config = {
 const client = new line.Client(config);
 const app = express();
 
+// ---------- 客人帳號（自助身分驗證、到貨通知用，跟內部帳號是不同的LINE Channel）----------
+const customerConfig = {
+  channelAccessToken: process.env.CUSTOMER_LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret: process.env.CUSTOMER_LINE_CHANNEL_SECRET,
+};
+const customerClient = new line.Client(customerConfig);
+
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 const APPS_SCRIPT_SECRET = process.env.APPS_SCRIPT_SECRET;
 
@@ -677,6 +684,71 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
     res.status(500).end();
   }
 });
+
+// ------------------- 客人帳號 webhook（身分驗證）-------------------
+
+app.post('/webhook-customer', line.middleware(customerConfig), async (req, res) => {
+  try {
+    await Promise.all(req.body.events.map(handleCustomerEvent));
+    res.status(200).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).end();
+  }
+});
+
+// 格式：會員編號-電話 或 會員編號 電話（空白/「-」都接受），例如「BM250001-0912345678」
+const MEMBER_VERIFY_PATTERN = /^([A-Za-z0-9]{2,12})[\s-]+(\d{8,10})$/;
+
+async function handleCustomerEvent(event) {
+  try {
+    if (event.type !== 'message' || event.message.type !== 'text') return;
+
+    const text = event.message.text.trim();
+    const match = text.match(MEMBER_VERIFY_PATTERN);
+    if (!match) return; // 不符合驗證格式的訊息，不處理，讓你們照舊在LINE後台手動回覆
+
+    const memberId = match[1];
+    const phone = match[2];
+    const userId = event.source.userId;
+
+    const verifyRes = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'verifyMemberIdentity', memberId, phone }),
+    });
+    const verifyJson = await verifyRes.json();
+
+    if (!verifyJson.success) {
+      await customerClient.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '查無這筆資料，請確認「會員編號」與「電話」是否正確，重新傳一次「會員編號-電話」給我 🙏',
+      });
+      return;
+    }
+
+    await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'saveLineBinding', memberId, userId }),
+    });
+
+    await customerClient.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `${verifyJson.name} 你好，身分驗證成功 🎉\n之後商品到貨，我們會直接在這裡通知你！`,
+    });
+  } catch (err) {
+    console.error(err);
+    try {
+      await customerClient.replyMessage(event.replyToken, {
+        type: 'text',
+        text: '⚠️ 系統發生錯誤，請稍後再試一次，或直接留言給我們，我們會手動處理。',
+      });
+    } catch (replyErr) {
+      console.error(replyErr);
+    }
+  }
+}
 
 function newSession(flow) {
   return { flow, stepIndex: 0, data: {} };
