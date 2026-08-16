@@ -128,6 +128,64 @@ async function fetchLastKoreaShippingFee() {
   return json.value;
 }
 
+// 查客人清單,把輸入(姓名/會員編號/組合格式)轉換成統一的「會員編號-姓名」格式。
+// 回傳 { resolved: '會員編號-姓名' } 表示只有一筆、直接可用;
+// 回傳 { candidates: [...] } 表示同名有多筆,呼叫端要跳出選單讓使用者選。
+async function resolveCustomerName(input) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'lookupCustomer', name: input }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '查詢失敗');
+  }
+  if (json.matches.length === 1) {
+    return { resolved: json.matches[0].combined };
+  }
+  return { candidates: json.matches };
+}
+
+// 查某位客人未付款訂單、組出回覆訊息、設定session,收款流程跟同名選擇流程都會用到
+async function startCollectPaymentForCustomer(customerName, userId) {
+  let unpaid;
+  try {
+    unpaid = await fetchUnpaidOrders(customerName);
+  } catch (err) {
+    sessions.delete(userId);
+    return buildStepMessage(`⚠️ ${err.message}`);
+  }
+  if (!unpaid || unpaid.length === 0) {
+    sessions.delete(userId);
+    return buildStepMessage(`「${customerName}」目前沒有未付款的訂單。`);
+  }
+  sessions.set(userId, { flow: 'collectPayment', step: 'awaitScope', data: { customerName, unpaidOrders: unpaid } });
+  const lines = [`「${customerName}」未付款訂單：`];
+  let sum = 0;
+  unpaid.forEach((o) => {
+    lines.push(`${o.orderId}｜${o.name}${o.color ? '／' + o.color : ''}${o.size ? '／' + o.size : ''} x${o.quantity}｜$${o.total}`);
+    sum += o.total;
+  });
+  lines.push('——————————');
+  lines.push(`💰 未付總金額：${sum}`);
+
+  return [
+    buildStepMessage(lines.join('\n')),
+    buildStepMessage('請選擇付款範圍', {
+      quickReplyItems: [
+        { label: '✅ 全部付款', text: '全部付款' },
+        { label: '☑️ 部分付款', text: '部分付款' },
+      ],
+    }),
+  ];
+}
+
 async function fetchCustomerToken(customerName) {
   const res = await fetch(APPS_SCRIPT_URL, {
     method: 'POST',
@@ -910,6 +968,26 @@ async function handleEventInner(event) {
     }
   }
 
+  if (session.flow === 'orderCustomerDisambiguate') {
+    const chosen = session.data.pendingCandidates.find((c) => c.combined === text.trim());
+    if (!chosen) {
+      return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選擇客人', {
+        quickReplyItems: session.data.pendingCandidates.map((c) => ({ label: c.combined, text: c.combined })),
+      }));
+    }
+    session.data.customerName = chosen.combined;
+    delete session.data.pendingCandidates;
+    session.flow = 'orderExtras';
+    return client.replyMessage(event.replyToken, buildStepMessage(`已選擇「${chosen.combined}」✅\n要加運費／出貨方式嗎？`, {
+      quickReplyItems: [
+        ...ORDER_EXTRA_PRESETS.map((t) => ({ label: t.label, text: t.text })),
+        { label: '🤝 面交', text: '加面交' },
+        { label: '➕ 其他', text: '其他項目' },
+        { label: '✅ 都不用了，下一步', text: '不用加了' },
+      ],
+    }));
+  }
+
   if (session.flow === 'orderExtras') {
     const presetMap = {};
     ORDER_EXTRA_PRESETS.forEach((t) => { presetMap[t.text] = t; });
@@ -1133,8 +1211,22 @@ async function handleEventInner(event) {
   }
 
   if (session.flow === 'customerSummary') {
-    const customerName = text.trim();
+    const rawInput = text.trim();
+    let resolution;
+    try {
+      resolution = await resolveCustomerName(rawInput);
+    } catch (err) {
+      sessions.delete(userId);
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+    }
+    if (resolution.candidates) {
+      sessions.set(userId, { flow: 'customerDisambiguate', data: { nextFlow: 'customerSummary', candidates: resolution.candidates } });
+      return client.replyMessage(event.replyToken, buildStepMessage('有多位同名客人，請選擇是哪一位：', {
+        quickReplyItems: resolution.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+      }));
+    }
     sessions.delete(userId);
+    const customerName = resolution.resolved;
     let token;
     try {
       token = await fetchCustomerToken(customerName);
@@ -1145,44 +1237,52 @@ async function handleEventInner(event) {
     return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️\n${url}`));
   }
 
+  if (session.flow === 'customerDisambiguate') {
+    const chosen = session.data.candidates.find((c) => c.combined === text.trim());
+    if (!chosen) {
+      return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選擇客人', {
+        quickReplyItems: session.data.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+      }));
+    }
+    const customerName = chosen.combined;
+    const nextFlow = session.data.nextFlow;
+    sessions.delete(userId);
+
+    if (nextFlow === 'customerSummary') {
+      let token;
+      try {
+        token = await fetchCustomerToken(customerName);
+      } catch (err) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+      }
+      const url = `${APPS_SCRIPT_URL}?token=${token}`;
+      return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️\n${url}`));
+    }
+
+    if (nextFlow === 'collectPayment') {
+      return client.replyMessage(event.replyToken, await startCollectPaymentForCustomer(customerName, userId));
+    }
+  }
+
   if (session.flow === 'collectPayment') {
     const PAYMENT_METHODS = ['PC', 'LINE', '轉帳', '賣貨便/信用卡', '現金/小芳', '現金/宛柔'];
 
     if (session.step === 'awaitName') {
-      const customerName = text;
-      let unpaid;
+      const rawInput = text.trim();
+      let resolution;
       try {
-        unpaid = await fetchUnpaidOrders(customerName);
+        resolution = await resolveCustomerName(rawInput);
       } catch (err) {
         sessions.delete(userId);
         return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
       }
-      if (!unpaid || unpaid.length === 0) {
-        sessions.delete(userId);
-        return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」目前沒有未付款的訂單。`));
+      if (resolution.candidates) {
+        sessions.set(userId, { flow: 'customerDisambiguate', data: { nextFlow: 'collectPayment', candidates: resolution.candidates } });
+        return client.replyMessage(event.replyToken, buildStepMessage('有多位同名客人，請選擇是哪一位：', {
+          quickReplyItems: resolution.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+        }));
       }
-      session.data.customerName = customerName;
-      session.data.unpaidOrders = unpaid;
-      session.step = 'awaitScope';
-
-      const lines = [`「${customerName}」未付款訂單：`];
-      let sum = 0;
-      unpaid.forEach((o) => {
-        lines.push(`${o.orderId}｜${o.name}${o.color ? '／' + o.color : ''}${o.size ? '／' + o.size : ''} x${o.quantity}｜$${o.total}`);
-        sum += o.total;
-      });
-      lines.push('——————————');
-      lines.push(`💰 未付總金額：${sum}`);
-
-      return client.replyMessage(event.replyToken, [
-        buildStepMessage(lines.join('\n')),
-        buildStepMessage('請選擇付款範圍', {
-          quickReplyItems: [
-            { label: '✅ 全部付款', text: '全部付款' },
-            { label: '☑️ 部分付款', text: '部分付款' },
-          ],
-        }),
-      ]);
+      return client.replyMessage(event.replyToken, await startCollectPaymentForCustomer(resolution.resolved, userId));
     }
 
     if (session.step === 'awaitScope') {
@@ -1267,6 +1367,21 @@ async function handleEventInner(event) {
       }
     } else if (currentStep.type === 'orderItems') {
       const parsed = parseOrderTemplate(text);
+      let resolution;
+      try {
+        resolution = await resolveCustomerName(parsed.customerName);
+      } catch (err) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n請確認客人姓名/會員編號正確後，重新貼上整段內容。`));
+      }
+      if (resolution.candidates) {
+        Object.assign(session.data, parsed);
+        session.flow = 'orderCustomerDisambiguate';
+        session.data.pendingCandidates = resolution.candidates;
+        return client.replyMessage(event.replyToken, buildStepMessage('有多位同名客人，請選擇是哪一位：', {
+          quickReplyItems: resolution.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+        }));
+      }
+      parsed.customerName = resolution.resolved;
       Object.assign(session.data, parsed);
       session.flow = 'orderExtras'; // 商品清單收好之後,先進小流程用按鈕加運費/折扣/購物金,不直接走下一步(已收款)
       return client.replyMessage(event.replyToken, buildStepMessage('商品清單收到了✅\n要加運費／出貨方式嗎？', {
