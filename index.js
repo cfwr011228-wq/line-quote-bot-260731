@@ -697,8 +697,8 @@ app.post('/webhook-customer', line.middleware(customerConfig), async (req, res) 
   }
 });
 
-// 格式：會員編號-電話 或 會員編號 電話（空白/「-」都接受），例如「BM250001-0912345678」
-const MEMBER_VERIFY_PATTERN = /^([A-Za-z0-9]{2,12})[\s-]+(\d{8,10})$/;
+// 格式：姓名+電話（用「+」分隔），例如「王小明+0912345678」
+const MEMBER_VERIFY_PATTERN = /^(.+?)\+(\d{8,10})$/;
 
 async function handleCustomerEvent(event) {
   try {
@@ -708,21 +708,21 @@ async function handleCustomerEvent(event) {
     const match = text.match(MEMBER_VERIFY_PATTERN);
     if (!match) return; // 不符合驗證格式的訊息，不處理，讓你們照舊在LINE後台手動回覆
 
-    const memberId = match[1];
+    const name = match[1].trim();
     const phone = match[2];
     const userId = event.source.userId;
 
     const verifyRes = await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'verifyMemberIdentity', memberId, phone }),
+      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'verifyMemberIdentity', name, phone }),
     });
     const verifyJson = await verifyRes.json();
 
     if (!verifyJson.success) {
       await customerClient.replyMessage(event.replyToken, {
         type: 'text',
-        text: '查無這筆資料，請確認「會員編號」與「電話」是否正確，重新傳一次「會員編號-電話」給我 🙏',
+        text: '查無這筆資料，請確認「姓名」與「電話」是否正確，重新傳一次「姓名+電話」給我 🙏',
       });
       return;
     }
@@ -730,12 +730,12 @@ async function handleCustomerEvent(event) {
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'saveLineBinding', memberId, userId }),
+      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'saveLineBinding', memberId: verifyJson.memberId, userId }),
     });
 
     await customerClient.replyMessage(event.replyToken, {
       type: 'text',
-      text: `${verifyJson.name} 你好，身分驗證成功 🎉\n之後商品到貨，我們會直接在這裡通知你！`,
+      text: `綁定成功 🎉\n會員編號：${verifyJson.memberId}\n姓名：${verifyJson.name}\n電話：${verifyJson.phone}`,
     });
   } catch (err) {
     console.error(err);
