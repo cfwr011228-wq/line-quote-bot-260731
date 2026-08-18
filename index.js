@@ -756,6 +756,14 @@ function newSession(flow) {
   return { flow, stepIndex: 0, data: {} };
 }
 
+// 推播訊息(pushMessage)要指定送到哪裡,跟回覆(replyMessage)不一樣,不會自動跟著訊息來源走。
+// 在群組/多人聊天室裡用機器人,要送到那個群組/聊天室,而不是送到發話者的個人一對一對話,不然客服會收不到、只有發話的人自己看得到。
+function getPushTargetId(event) {
+  if (event.source.type === 'group') return event.source.groupId;
+  if (event.source.type === 'room') return event.source.roomId;
+  return event.source.userId;
+}
+
 // 依流程判斷要用哪個國旗表情符號
 function flagForFlow(flow, data) {
   if (flow === 'koreaKrw' || flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical' || flow === 'peerKrw') return '🇰🇷';
@@ -1544,19 +1552,20 @@ async function handleEventInner(event) {
 
     // 背景真正寫入試算表,完成後用推播訊息補上商品編號(不 await,不擋住剛剛的回覆)
     // 沒有收到這則補充訊息,就代表這筆沒有真的成立,需要重新送出一次。
+    const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
     submitToAppsScript(finalFlow, finalData, false)
       .then((result) => {
         const idText = finalFlow === 'order'
           ? result.orders.map((o) => o.orderId).join('、')
           : String(result.productId);
         const label = finalFlow === 'order' ? '訂單編號' : '商品編號';
-        return client.pushMessage(userId, [
+        return client.pushMessage(pushTargetId, [
           buildStepMessage(`✅ 已成立\n${label}⬇️`),
           buildStepMessage(idText),
         ]);
       })
       .catch((err) => {
-        return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
+        return client.pushMessage(pushTargetId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
       });
 
     return;
@@ -1581,15 +1590,16 @@ async function finalizeOrder(session, event, userId) {
   sessions.delete(userId);
   await client.replyMessage(event.replyToken, buildStepMessage(buildQuoteMessage('order', finalData, dryRunResult)));
 
+  const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
   submitToAppsScript('order', finalData, false)
     .then((result) => {
-      return client.pushMessage(userId, [
+      return client.pushMessage(pushTargetId, [
         buildStepMessage('✅ 已成立\n訂單編號⬇️'),
         buildStepMessage(result.orders.map((o) => o.orderId).join('、')),
       ]);
     })
     .catch((err) => {
-      return client.pushMessage(userId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
+      return client.pushMessage(pushTargetId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
     });
 }
 
