@@ -242,7 +242,8 @@ const PEER_KRW_FIELDS = [
   { label: '備註', key: 'note', type: 'text' },
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', required: true },
+  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number' }, // 選填,未填代表不加成
+  { label: '固定加價金額', key: 'flatFee', type: 'number' }, // 選填,未填代表不加
   { label: '重量（kg）', key: 'weight', type: 'number', required: true },
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
@@ -261,6 +262,7 @@ const PEER_JPY_FIELDS = [
   { label: '原價', key: 'originalPrice', type: 'number' },
   { label: '售價', key: 'price', type: 'price', required: true },
   { label: '買手費（%）', key: 'buyerFeePercent', type: 'number' }, // 選填,未填代表不加成
+  { label: '固定加價金額', key: 'flatFee', type: 'number' }, // 選填,未填代表不加
   { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
   { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
   { label: '同行匯率', key: 'peerRate', type: 'number', default: 0.21 }, // 1日幣=X台幣方向,跟韓幣相反
@@ -989,6 +991,9 @@ async function handleEventInner(event) {
         { label: '🇰🇷 韓免線上', text: '批次-韓免線上' },
         { label: '🇰🇷 韓免實體', text: '批次-韓免實體' },
         { label: '🇺🇸 美國代購', text: '批次-美國' },
+        { label: '🤝 同行台幣', text: '批次-同行台幣' },
+        { label: '🤝 同行韓幣', text: '批次-同行韓幣' },
+        { label: '🤝 同行日幣', text: '批次-同行日幣' },
       ],
     }));
   }
@@ -1168,6 +1173,9 @@ async function handleEventInner(event) {
       '批次-韓免線上': 'dutyFreeOnline',
       '批次-韓免實體': 'dutyFreePhysical',
       '批次-美國': 'usa',
+      '批次-同行台幣': 'peerTwd',
+      '批次-同行韓幣': 'peerKrw',
+      '批次-同行日幣': 'peerJpy',
     };
     if (batchFlowMap[text]) {
       sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], imageSlots: [], pending: 0 } });
@@ -1181,6 +1189,9 @@ async function handleEventInner(event) {
         { label: '🇰🇷 韓免線上', text: '批次-韓免線上' },
         { label: '🇰🇷 韓免實體', text: '批次-韓免實體' },
         { label: '🇺🇸 美國代購', text: '批次-美國' },
+        { label: '🤝 同行台幣', text: '批次-同行台幣' },
+        { label: '🤝 同行韓幣', text: '批次-同行韓幣' },
+        { label: '🤝 同行日幣', text: '批次-同行日幣' },
       ],
     }));
   }
@@ -1521,8 +1532,8 @@ async function handleEventInner(event) {
     const finalData = session.data;
     const finalFlow = session.flow;
     sessions.delete(userId);
-    const quoteMessage = finalFlow === 'koreaKrw'
-      ? buildKoreaQuoteFlex(finalData, dryRunResult) // 試做版:韓幣報價改用圖文卡片
+    const quoteMessage = QUOTE_FLEX_STYLE[finalFlow]
+      ? buildQuoteFlex(finalFlow, finalData, dryRunResult)
       : buildStepMessage(buildQuoteMessage(finalFlow, finalData, dryRunResult));
     const messages = [...extraMessages.map((t) => buildStepMessage(t)), quoteMessage];
     if (finalFlow !== 'order') {
@@ -1798,7 +1809,20 @@ function costLine(result) {
 
 // 韓幣報價完成的圖文卡片(LINE Flex Message),含商品圖片+條列資訊+報價金額。
 // 之後如果效果好,可以比照這個結構,幫美國/韓免/買手等其他報價類型也做一份。
-function buildKoreaQuoteFlex(data, result) {
+const QUOTE_FLEX_STYLE = {
+  koreaKrw: { title: '✅ 韓幣報價完成', accent: '#A9825F', bg: '#F5EBDD' },
+  usa: { title: '✅ 美金報價完成', accent: '#5B7A9D', bg: '#EAF0F6' },
+  dutyFreeOnline: { title: '✅ 線上免稅店報價完成', accent: '#8E6FA8', bg: '#F1EAF7' },
+  dutyFreePhysical: { title: '✅ 實體免稅店報價完成', accent: '#8E6FA8', bg: '#F1EAF7' },
+  peerTwd: { title: '✅ 同行報價完成（台幣）', accent: '#4E8C6A', bg: '#E9F5EE' },
+  peerKrw: { title: '✅ 同行報價完成（韓幣）', accent: '#4E8C6A', bg: '#E9F5EE' },
+  peerJpy: { title: '✅ 同行報價完成（日幣）', accent: '#4E8C6A', bg: '#E9F5EE' },
+};
+
+// 通用報價完成圖文卡片,依flow換標題色系跟顯示欄位。缺的欄位自動略過,不會出現空白列。
+function buildQuoteFlex(flow, data, result) {
+  const style = QUOTE_FLEX_STYLE[flow] || QUOTE_FLEX_STYLE.koreaKrw;
+
   function row(label, value) {
     return {
       type: 'box', layout: 'horizontal', contents: [
@@ -1808,12 +1832,19 @@ function buildKoreaQuoteFlex(data, result) {
     };
   }
 
-  const infoRows = [row('品牌', data.brand), row('名稱', data.name)];
+  const infoRows = [];
+  if (data.peerName) infoRows.push(row('同行姓名', data.peerName));
+  infoRows.push(row('品牌', data.brand));
+  infoRows.push(row('名稱', data.name));
   if (data.color) infoRows.push(row('顏色', data.color));
   if (data.size) infoRows.push(row('尺寸', data.size));
   if (data.style) infoRows.push(row('款式', data.style));
-  infoRows.push(row('購買地點', data.location));
-  infoRows.push(row('重量', data.weight !== null && data.weight !== undefined ? `${data.weight} kg` : '未填（親飛帶回）'));
+  if (data.location) infoRows.push(row('購買地點', data.location));
+  if (data.lowestStore) infoRows.push(row('最低店家', data.lowestStore));
+  if (data.lowestPrice !== null && data.lowestPrice !== undefined) infoRows.push(row('最低售價', data.lowestPrice));
+  if (data.weight !== null && data.weight !== undefined) infoRows.push(row('重量', `${data.weight} kg`));
+  if (data.buyerFeePercent !== null && data.buyerFeePercent !== undefined) infoRows.push(row('買手費', `${data.buyerFeePercent}%`));
+  if (data.flatFee !== null && data.flatFee !== undefined) infoRows.push(row('固定加價', data.flatFee));
   if (data.note) infoRows.push(row('備註', data.note));
 
   const bubble = {
@@ -1822,20 +1853,20 @@ function buildKoreaQuoteFlex(data, result) {
       type: 'image', url: data.imageUrl, size: 'full', aspectRatio: '1:1', aspectMode: 'cover',
     } : undefined,
     header: {
-      type: 'box', layout: 'vertical', backgroundColor: '#A9825F', paddingAll: '16px',
-      contents: [{ type: 'text', text: '✅ 韓幣報價完成', color: '#ffffff', weight: 'bold', size: 'lg' }],
+      type: 'box', layout: 'vertical', backgroundColor: style.accent, paddingAll: '16px',
+      contents: [{ type: 'text', text: style.title, color: '#ffffff', weight: 'bold', size: 'lg' }],
     },
     body: {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
       contents: [...infoRows, { type: 'separator', margin: 'md' }],
     },
     footer: {
-      type: 'box', layout: 'vertical', backgroundColor: '#F5EBDD', paddingAll: '16px', spacing: 'sm',
+      type: 'box', layout: 'vertical', backgroundColor: style.bg, paddingAll: '16px', spacing: 'sm',
       contents: [
         {
           type: 'box', layout: 'horizontal', contents: [
-            { type: 'text', text: '建議報價', size: 'md', color: '#7A5C3E' },
-            { type: 'text', text: String(result.total), size: 'xl', weight: 'bold', align: 'end', color: '#A9825F' },
+            { type: 'text', text: '建議報價', size: 'md', color: '#555555' },
+            { type: 'text', text: String(result.total), size: 'xl', weight: 'bold', align: 'end', color: style.accent },
           ],
         },
         {
@@ -1848,7 +1879,7 @@ function buildKoreaQuoteFlex(data, result) {
     },
   };
 
-  return { type: 'flex', altText: `✅ 韓幣報價完成：${data.brand} ${data.name} $${result.total}`, contents: bubble };
+  return { type: 'flex', altText: `${style.title}：${data.brand || data.peerName || ''} ${data.name || ''} $${result.total}`, contents: bubble };
 }
 
 function buildQuoteMessage(flow, data, result) {
