@@ -946,6 +946,7 @@ async function handleEventInner(event) {
         { label: '✏️ 改利潤', text: '改利潤' },
         { label: '📦 更新採購表', text: '更新採購表' },
         { label: '📊 更新營收表', text: '更新營收表' },
+        { label: '📋 採購清單', text: '採購清單' },
       ],
     }));
   }
@@ -1051,7 +1052,7 @@ async function handleEventInner(event) {
       '輸入「選單」查看所有功能\n\n' +
       '📋 報價\n・同行報價\n・韓國代購／線上免稅店／實體免稅店／美國代購\n・批次貼圖\n\n' +
       '📦 訂單\n・新增訂單\n・收款\n・客戶明細\n・收件資料\n\n' +
-      '🛠️ 管理\n・改報價／改利潤\n・更新採購表／更新營收表'
+      '🛠️ 管理\n・改報價／改利潤\n・更新採購表／更新營收表\n・採購清單'
     ));
   }
 
@@ -1865,7 +1866,7 @@ const QUOTE_FLEX_STYLE = {
 };
 
 // 通用報價完成圖文卡片,依flow換標題色系跟顯示欄位。缺的欄位自動略過,不會出現空白列。
-const PROCUREMENT_FALLBACK_IMAGE = 'https://placehold.co/100x100/EFE6D6/8A7E70?text=%20'; // 商品沒有圖片時的預設灰底圖
+const PROCUREMENT_FALLBACK_IMAGE = 'https://placehold.co/100x100/EFE6D6/8A7E70.png?text=+'; // 商品沒有圖片時的預設灰底圖(LINE圖文卡片只吃JPEG/PNG,不支援SVG,一定要指定.png)
 
 function buildProcurementCarousel(groups) {
   const bubbles = groups.slice(0, 12).map((g) => { // LINE輪播卡片上限12張
