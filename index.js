@@ -19,6 +19,36 @@ const customerClient = new line.Client(customerConfig);
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 const APPS_SCRIPT_SECRET = process.env.APPS_SCRIPT_SECRET;
 
+// 統一呼叫 Apps Script 的地方。之前每個函式各自寫一份 fetch+解析,失敗時只丟一句籠統的錯誤訊息、
+// 把真正的原始回應內容吞掉,導致Logs根本查不出問題出在哪。改成先用 res.text() 拿到原始文字,
+// 解析失敗時把「HTTP狀態碼」跟「回應內容前500字」印進 Logs,才看得出來是網址錯、部署過期、還是程式本身出錯。
+// 最底層：帶什麼payload都行,統一處理送出、解析回應、失敗時記錄診斷資訊。
+async function postAppsScript(payload, fallbackErrorMsg) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, ...payload }),
+  });
+  const text = await res.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    console.error(`[postAppsScript] payload=${JSON.stringify(payload).slice(0, 200)} 回應不是合法JSON。HTTP狀態碼: ${res.status}`);
+    console.error(`[postAppsScript] 原始回應內容(前500字): ${text.slice(0, 500)}`);
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || fallbackErrorMsg || '操作失敗');
+  }
+  return json;
+}
+
+// 大多數功能是用 action 欄位分派,這裡包一層方便呼叫。
+async function callAppsScript(action, extraPayload, fallbackErrorMsg) {
+  return postAppsScript({ action, ...extraPayload }, fallbackErrorMsg);
+}
+
 // ---------- 對話狀態(記憶體版,重啟會遺失,正式上線建議換 Redis/DB) ----------
 const sessions = new Map();
 
@@ -139,20 +169,7 @@ async function fetchLastKoreaShippingFee() {
 // 回傳 { resolved: '會員編號-姓名' } 表示只有一筆、直接可用;
 // 回傳 { candidates: [...] } 表示同名有多筆,呼叫端要跳出選單讓使用者選。
 async function resolveCustomerName(input) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'lookupCustomer', name: input }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '查詢失敗');
-  }
+  const json = await callAppsScript('lookupCustomer', { name: input }, '查詢失敗');
   if (json.matches.length === 1) {
     return { resolved: json.matches[0].combined };
   }
@@ -194,20 +211,7 @@ async function startCollectPaymentForCustomer(customerName, userId) {
 }
 
 async function fetchCustomerToken(customerName) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'getCustomerToken', customerName }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '產生連結失敗');
-  }
+  const json = await callAppsScript('getCustomerToken', { customerName }, '產生連結失敗');
   return json.token;
 }
 
@@ -1622,21 +1626,7 @@ async function finalizeOrder(session, event, userId) {
 }
 
 async function submitToAppsScript(flow, data, dryRun) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, recordType: flow, dryRun: !!dryRun, ...data }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '寫入試算表失敗');
-  }
-  return json; // { success, productId?, total, shippingRatePerKg?, baseCost, shippingCost }
+  return postAppsScript({ recordType: flow, dryRun: !!dryRun, ...data }, '寫入試算表失敗');
 }
 
 // 第一行是會員編號(可以直接純編號,或還是打「客戶編號：xxx」都吃得到),
@@ -1687,165 +1677,41 @@ function parseShippingPaste(text) {
 }
 
 async function submitUpdateCustomerShipping(data) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'updateCustomerShipping', ...data }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '更新失敗');
-  }
-  return json;
+  return callAppsScript('updateCustomerShipping', data, '更新失敗');
 }
 
 async function submitRebuildProcurement() {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'rebuildProcurement' }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '更新失敗');
-  }
-  return json;
+  return callAppsScript('rebuildProcurement', {}, '更新失敗');
 }
 
 async function submitRebuildRevenue() {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'rebuildRevenue' }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '更新失敗');
-  }
-  return json;
+  return callAppsScript('rebuildRevenue', {}, '更新失敗');
 }
 
 async function submitSetAdminUserId(userId) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'setAdminUserId', userId }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '設定失敗');
-  }
-  return json;
+  return callAppsScript('setAdminUserId', { userId }, '設定失敗');
 }
 
 async function submitBatchAddImages(targetFlow, images) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'batchAddImages', targetFlow, images }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '寫入失敗');
-  }
-  return json; // { success, productIds }
+  return callAppsScript('batchAddImages', { targetFlow, images }, '寫入失敗'); // { success, productIds }
 }
 
 async function submitOverride(field, productId, value) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'override', field, productId, value }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '更新失敗');
-  }
-  return json; // { success, productId, newTotal }
+  return callAppsScript('override', { field, productId, value }, '更新失敗'); // { success, productId, newTotal }
 }
 
 async function fetchUnpaidOrders(customerName) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'listUnpaid', customerName }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '查詢失敗');
-  }
+  const json = await callAppsScript('listUnpaid', { customerName }, '查詢失敗');
   return json.orders; // [{ orderId, name, color, size, style, quantity, total }]
 }
 
 async function fetchProcurementList() {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'listProcurement' }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '查詢失敗');
-  }
+  const json = await callAppsScript('listProcurement', {}, '查詢失敗');
   return json.groups; // [{ source, items: [{brand,name,color,size,style,needQty}] }]
 }
 
 async function markOrdersPaid(orderIds, paymentMethod) {
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'markPaid', orderIds, paymentMethod }),
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch (e) {
-    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
-  }
-  if (!json.success) {
-    throw new Error(json.error || '更新失敗');
-  }
-  return json;
+  return callAppsScript('markPaid', { orderIds, paymentMethod }, '更新失敗');
 }
 
 function costLine(result) {
