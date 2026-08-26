@@ -649,7 +649,7 @@ const ORDER_EXTRA_OTHER_PRESETS = [
   { label: '🚛 宅配_免運', text: '加宅配免運', identifier: '宅配_免運' },
 ];
 // 面交需要另外選是哪一位
-const MEETUP_PEOPLE = ['小芳', '新竹好市多', '竹北享平方', '宛柔'];
+const MEETUP_PEOPLE = ['小芳', '新竹好市多', '竹北享平方', '宛柔', '苗栗市面交'];
 // 收在「其他」按鈕裡,選了才問金額
 const ORDER_EXTRA_OTHER_TYPES = [
   { label: '💸 折扣', text: '加折扣', identifier: '折扣' },
@@ -870,6 +870,23 @@ async function handleEventInner(event) {
     } catch (err) {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 更新失敗：${err.message}`));
     }
+  }
+
+  if (text === '採購清單') {
+    let groups;
+    try {
+      groups = await fetchProcurementList();
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+    }
+    if (!groups || groups.length === 0) {
+      return client.replyMessage(event.replyToken, buildStepMessage('目前沒有還需要叫貨的商品 🎉'));
+    }
+    const messages = [buildProcurementCarousel(groups)];
+    if (groups.length > 12) {
+      messages.push(buildStepMessage(`⚠️ 採購來源有${groups.length}個，超過LINE卡片上限12張，只顯示前12個，其餘請去採購表查看。`));
+    }
+    return client.replyMessage(event.replyToken, messages);
   }
 
   if (text === '收件資料') {
@@ -1794,6 +1811,24 @@ async function fetchUnpaidOrders(customerName) {
   return json.orders; // [{ orderId, name, color, size, style, quantity, total }]
 }
 
+async function fetchProcurementList() {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'listProcurement' }),
+  });
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
+  }
+  if (!json.success) {
+    throw new Error(json.error || '查詢失敗');
+  }
+  return json.groups; // [{ source, items: [{brand,name,color,size,style,needQty}] }]
+}
+
 async function markOrdersPaid(orderIds, paymentMethod) {
   const res = await fetch(APPS_SCRIPT_URL, {
     method: 'POST',
@@ -1830,6 +1865,38 @@ const QUOTE_FLEX_STYLE = {
 };
 
 // 通用報價完成圖文卡片,依flow換標題色系跟顯示欄位。缺的欄位自動略過,不會出現空白列。
+const PROCUREMENT_FALLBACK_IMAGE = 'https://placehold.co/100x100/EFE6D6/8A7E70?text=%20'; // 商品沒有圖片時的預設灰底圖
+
+function buildProcurementCarousel(groups) {
+  const bubbles = groups.slice(0, 12).map((g) => { // LINE輪播卡片上限12張
+    const itemRows = g.items.map((item) => {
+      const spec = [item.color, item.size, item.style].filter(Boolean).join('／');
+      return {
+        type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md',
+        contents: [
+          { type: 'image', url: item.image || PROCUREMENT_FALLBACK_IMAGE, size: '48px', aspectRatio: '1:1', aspectMode: 'cover', flex: 0 },
+          {
+            type: 'box', layout: 'vertical', flex: 1, contents: [
+              { type: 'text', text: `${item.brand || ''} ${item.name || ''}`.trim(), size: 'xs', wrap: true, color: '#3A322A' },
+              { type: 'text', text: spec || ' ', size: 'xxs', color: '#8A7E70' },
+            ],
+          },
+          { type: 'text', text: 'x' + item.needQty, size: 'sm', flex: 0, gravity: 'center', color: '#4A3B2A', weight: 'bold' },
+        ],
+      };
+    });
+    return {
+      type: 'bubble',
+      header: {
+        type: 'box', layout: 'vertical', backgroundColor: '#4A3B2A', paddingAll: '14px',
+        contents: [{ type: 'text', text: g.source, size: 'md', color: '#FFFFFF', weight: 'bold' }],
+      },
+      body: { type: 'box', layout: 'vertical', paddingAll: '14px', contents: itemRows },
+    };
+  });
+  return { type: 'flex', altText: '採購清單', contents: { type: 'carousel', contents: bubbles } };
+}
+
 function buildQuoteFlex(flow, data, result) {
   const style = QUOTE_FLEX_STYLE[flow] || QUOTE_FLEX_STYLE.koreaKrw;
 
