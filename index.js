@@ -1226,7 +1226,17 @@ async function handleEventInner(event) {
     }));
   }
 
-  if (session.flow === 'batchPhoto') {
+  // 支援「批次貼圖後直接填共用資料」的類型(顏色以外其他欄位通常都一樣,免稅店先不支援,
+// 因為免稅店牽涉5間店比價、折扣，後處理邏輯比較複雜，之後有需要再另外做)
+const BATCH_SHARED_FLOW_CONFIG = {
+  koreaKrw: { fields: KOREA_KRW_FIELDS, rateType: 'krw', needsShippingFee: true },
+  usa: { fields: USA_FIELDS, rateType: 'usd', needsShippingFee: false },
+  peerTwd: { fields: PEER_TWD_FIELDS, rateType: null, needsShippingFee: false },
+  peerKrw: { fields: PEER_KRW_FIELDS, rateType: null, needsShippingFee: false },
+  peerJpy: { fields: PEER_JPY_FIELDS, rateType: null, needsShippingFee: false },
+};
+
+if (session.flow === 'batchPhoto') {
     if (text === '完成') {
       const pending = session.data.pending || 0;
       if (pending > 0) {
@@ -1237,17 +1247,58 @@ async function handleEventInner(event) {
         sessions.delete(userId);
         return client.replyMessage(event.replyToken, buildStepMessage('沒有收到任何照片，批次貼圖已結束。'));
       }
-      sessions.delete(userId); // 先結束session,避免使用者在等待寫入的這幾秒內又傳照片進來卡到舊session
-      try {
-        const result = await submitBatchAddImages(session.data.targetFlow, images);
-        const ids = result.productIds;
-        const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
-        return client.replyMessage(event.replyToken, buildStepMessage(
-          `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
-        ));
-      } catch (err) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}\n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
+
+      const targetFlow = session.data.targetFlow;
+      const sharedConfig = BATCH_SHARED_FLOW_CONFIG[targetFlow];
+
+      if (!sharedConfig) {
+        // 免稅店(或其他不支援的類型):維持舊行為,只建空白列帶圖片,其他資料要自己回表格補
+        sessions.delete(userId);
+        try {
+          const result = await submitBatchAddImages(targetFlow, images);
+          const ids = result.productIds;
+          const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
+          return client.replyMessage(event.replyToken, buildStepMessage(
+            `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
+          ));
+        } catch (err) {
+          return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}\n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
+        }
       }
+
+      // 支援的類型:不馬上寫入,先收「共用資料」(品牌/名稱/價格等),等收完顏色清單才一次送出
+      const sharedFields = sharedConfig.fields.filter((f) => f.key !== 'color'); // 顏色另外收,不放進共用範本
+      const dynamicDefaults = {};
+      try {
+        if (sharedConfig.rateType === 'krw') {
+          const liveRate = await fetchFxRate('KRW');
+          dynamicDefaults.fxRate = round2(liveRate - 4);
+        } else if (sharedConfig.rateType === 'usd') {
+          const liveRate = await fetchUsdToTwdRate();
+          dynamicDefaults.fxRate = round2(liveRate + 1);
+        }
+        if (sharedConfig.needsShippingFee) {
+          dynamicDefaults.koreaShippingFee = await fetchLastKoreaShippingFee();
+        }
+      } catch (err) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 查匯率失敗：${err.message}\n請重新輸入「完成」再試一次。`));
+      }
+
+      const fieldsWithDefaults = sharedFields.map((f) => {
+        if (f.key === 'fxRate' && dynamicDefaults.fxRate !== undefined) return { ...f, default: dynamicDefaults.fxRate };
+        if (f.key === 'koreaShippingFee' && dynamicDefaults.koreaShippingFee !== undefined) return { ...f, default: dynamicDefaults.koreaShippingFee };
+        return f;
+      });
+
+      sessions.set(userId, {
+        flow: 'batchSharedTemplate',
+        data: { targetFlow, images, fields: fieldsWithDefaults },
+      });
+
+      const rateInfo = dynamicDefaults.fxRate !== undefined ? `今日匯率已自動帶入（${dynamicDefaults.fxRate}），如需使用別的匯率請直接修改整段內容\n\n` : '';
+      return client.replyMessage(event.replyToken, buildStepMessage(
+        `📷 已收到 ${images.length} 張照片\n這批商品「顏色以外」的資料都一樣的話，填一次就好，等一下再另外列每張照片對應的顏色。\n\n${rateInfo}請複製整段填寫、回傳（顏色不用填在這裡）\n\n${buildTemplateText('', fieldsWithDefaults).replace(/^\n+/, '')}`
+      ));
     }
 
     if (event.message.type !== 'image') {
@@ -1267,6 +1318,76 @@ async function handleEventInner(event) {
       session.data.pending -= 1;
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張接收失敗：${err.message}\n可以重新傳一次這張，不影響前面已收到的。`));
     }
+  }
+
+  if (session.flow === 'batchSharedTemplate') {
+    if (text === '取消') {
+      sessions.delete(userId);
+      return client.replyMessage(event.replyToken, buildStepMessage('已取消，剛剛收到的照片沒有寫進表格。'));
+    }
+    let sharedData;
+    try {
+      sharedData = parseTemplate(text, session.data.fields, {});
+    } catch (err) {
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
+    }
+    if (session.data.targetFlow === 'koreaKrw' && !sharedData.location) {
+      sharedData.location = sharedData.brand;
+    }
+    if ((session.data.targetFlow === 'peerTwd' || session.data.targetFlow === 'peerJpy') &&
+      (sharedData.weight === null || sharedData.weight === undefined)) {
+      sharedData.shippingRate = 0;
+    }
+
+    session.flow = 'batchColors';
+    session.data.sharedData = sharedData;
+    const n = session.data.images.length;
+    return client.replyMessage(event.replyToken, buildStepMessage(
+      `資料收到了✅\n這批共 ${n} 張照片，請依照片傳送的順序，用逗號列出每張對應的顏色（第1張, 第2張, ...）\n例如：黑,白,灰\n輸入「取消」可以放棄這次。`
+    ));
+  }
+
+  if (session.flow === 'batchColors') {
+    if (text === '取消') {
+      sessions.delete(userId);
+      return client.replyMessage(event.replyToken, buildStepMessage('已取消，剛剛收到的照片沒有寫進表格。'));
+    }
+    const colors = text.split(/[,，]/).map((s) => s.trim()).filter((s) => s.length > 0);
+    const images = session.data.images;
+    if (colors.length !== images.length) {
+      return client.replyMessage(event.replyToken, buildStepMessage(
+        `⚠️ 顏色數量（${colors.length}個）跟照片數量（${images.length}張）對不上，請重新用逗號列出全部 ${images.length} 個顏色（依照片順序）。`
+      ));
+    }
+
+    const targetFlow = session.data.targetFlow;
+    const sharedData = session.data.sharedData;
+    sessions.delete(userId); // 先結束session,避免等待寫入的這段時間使用者又傳訊息卡到舊session
+
+    await client.replyMessage(event.replyToken, buildStepMessage(`收到，開始寫入 ${images.length} 筆商品，完成後會用另一則訊息通知商品編號，請稍等。`));
+
+    const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
+    const successIds = [];
+    const failed = [];
+    for (let i = 0; i < images.length; i++) {
+      const itemData = { ...sharedData, color: colors[i], imageBase64: images[i] };
+      try {
+        const result = await submitToAppsScript(targetFlow, itemData, false);
+        successIds.push(result.productId);
+      } catch (err) {
+        failed.push(`${colors[i]}：${err.message}`);
+      }
+    }
+
+    const lines = [];
+    if (successIds.length > 0) {
+      const idRangeText = successIds.length > 1 ? `${successIds[0]} ～ ${successIds[successIds.length - 1]}` : successIds[0];
+      lines.push(`✅ 已成立 ${successIds.length} 筆\n商品編號：${idRangeText}`);
+    }
+    if (failed.length > 0) {
+      lines.push(`⚠️ 以下 ${failed.length} 筆失敗，請手動補：\n${failed.join('\n')}`);
+    }
+    return client.pushMessage(pushTargetId, buildStepMessage(lines.join('\n\n')));
   }
 
   if (session.flow === 'override') {
