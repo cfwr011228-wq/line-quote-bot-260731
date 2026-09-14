@@ -1297,7 +1297,7 @@ if (session.flow === 'batchPhoto') {
 
       const rateInfo = dynamicDefaults.fxRate !== undefined ? `今日匯率已自動帶入（${dynamicDefaults.fxRate}），如需使用別的匯率請直接修改整段內容\n\n` : '';
       return client.replyMessage(event.replyToken, buildStepMessage(
-        `📷 已收到 ${images.length} 張照片\n這批商品「顏色以外」的資料都一樣的話，填一次就好，等一下再另外列每張照片對應的顏色。\n\n${rateInfo}請複製整段填寫、回傳（顏色不用填在這裡）\n\n${buildTemplateText('', fieldsWithDefaults).replace(/^\n+/, '')}`
+        `📷 已收到 ${images.length} 張照片\n這批商品「顏色以外」的資料都一樣的話，填一次就好，等一下再另外列每張照片對應的顏色。輸入「跳過」可以不填，只建空白列帶圖片，之後自己回表格補資料。\n\n${rateInfo}請複製整段填寫、回傳（顏色不用填在這裡）\n\n${buildTemplateText('', fieldsWithDefaults).replace(/^\n+/, '')}`
       ));
     }
 
@@ -1325,6 +1325,21 @@ if (session.flow === 'batchPhoto') {
       sessions.delete(userId);
       return client.replyMessage(event.replyToken, buildStepMessage('已取消，剛剛收到的照片沒有寫進表格。'));
     }
+    if (text === '跳過') {
+      const targetFlow = session.data.targetFlow;
+      const images = session.data.images;
+      sessions.delete(userId);
+      try {
+        const result = await submitBatchAddImages(targetFlow, images);
+        const ids = result.productIds;
+        const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
+        return client.replyMessage(event.replyToken, buildStepMessage(
+          `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
+        ));
+      } catch (err) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}\n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
+      }
+    }
     let sharedData;
     try {
       sharedData = parseTemplate(text, session.data.fields, {});
@@ -1343,7 +1358,7 @@ if (session.flow === 'batchPhoto') {
     session.data.sharedData = sharedData;
     const n = session.data.images.length;
     return client.replyMessage(event.replyToken, buildStepMessage(
-      `資料收到了✅\n這批共 ${n} 張照片，請依照片傳送的順序，用逗號列出每張對應的顏色（第1張, 第2張, ...）\n例如：黑,白,灰\n輸入「取消」可以放棄這次。`
+      `資料收到了✅\n這批共 ${n} 張照片，請依照片傳送的順序，用「/」列出每張對應的顏色（第1張/第2張/...）\n例如：黑/白/灰\n輸入「取消」可以放棄這次。`
     ));
   }
 
@@ -1352,11 +1367,11 @@ if (session.flow === 'batchPhoto') {
       sessions.delete(userId);
       return client.replyMessage(event.replyToken, buildStepMessage('已取消，剛剛收到的照片沒有寫進表格。'));
     }
-    const colors = text.split(/[,，]/).map((s) => s.trim()).filter((s) => s.length > 0);
+    const colors = text.split(/[\/／]/).map((s) => s.trim()).filter((s) => s.length > 0);
     const images = session.data.images;
     if (colors.length !== images.length) {
       return client.replyMessage(event.replyToken, buildStepMessage(
-        `⚠️ 顏色數量（${colors.length}個）跟照片數量（${images.length}張）對不上，請重新用逗號列出全部 ${images.length} 個顏色（依照片順序）。`
+        `⚠️ 顏色數量（${colors.length}個）跟照片數量（${images.length}張）對不上，請重新用「/」列出全部 ${images.length} 個顏色（依照片順序）。`
       ));
     }
 
