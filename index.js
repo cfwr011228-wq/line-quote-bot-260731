@@ -1096,6 +1096,16 @@ async function handleEventInner(event) {
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入客人姓名'));
   }
 
+  // 從「已成立」或「改報價/改利潤」完成後附的按鈕點過來的,格式：改報價／BM12345,商品編號已經帶好,不用再輸入一次
+  const overrideWithIdMatch = text.match(/^(改報價|改利潤)／(.+)$/);
+  if (overrideWithIdMatch) {
+    const field = overrideWithIdMatch[1] === '改報價' ? 'quote' : 'profit';
+    const label = overrideWithIdMatch[1] === '改報價' ? '報價' : '利潤';
+    const productId = overrideWithIdMatch[2].trim();
+    sessions.set(userId, { flow: 'override', field, stepIndex: 0, data: { productId } });
+    return client.replyMessage(event.replyToken, buildStepMessage(`商品編號：${productId}\n請輸入新的${label}金額`));
+  }
+
   if (text === '改報價' || text === '改利潤') {
     sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
@@ -1482,8 +1492,17 @@ if (session.flow === 'batchPhoto') {
       if (result.oldTotal !== undefined && result.oldTotal !== '') lines.push(`原報價：${result.oldTotal}`);
       if (result.newTotal !== undefined) lines.push(`新報價：${result.newTotal}`);
       const messages = [buildStepMessage(lines.join('\n'))];
+      // 附上改報價/改利潤按鈕,商品編號已經帶好,要再調整同一筆不用重新輸入商品編號
+      const editAgainStep = {
+        quickReplyItems: [
+          { label: '✏️ 改報價', text: `改報價／${productId}` },
+          { label: '✏️ 改利潤', text: `改利潤／${productId}` },
+        ],
+      };
       if (result.brand && result.name && result.newTotal !== undefined) {
-        messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal, result.color, result.size, result.style)));
+        messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal, result.color, result.size, result.style), editAgainStep));
+      } else {
+        messages.push(buildStepMessage('要再調整這筆嗎？', editAgainStep));
       }
       return client.replyMessage(event.replyToken, messages);
     } catch (err) {
@@ -1764,13 +1783,22 @@ if (session.flow === 'batchPhoto') {
     const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
     submitToAppsScript(finalFlow, finalData, false)
       .then((result) => {
-        const idText = finalFlow === 'order'
-          ? result.orders.map((o) => o.orderId).join('、')
-          : String(result.productId);
-        const label = finalFlow === 'order' ? '訂單編號' : '商品編號';
+        if (finalFlow === 'order') {
+          const idText = result.orders.map((o) => o.orderId).join('、');
+          return client.pushMessage(pushTargetId, [
+            buildStepMessage('✅ 已成立\n訂單編號⬇️'),
+            buildStepMessage(idText),
+          ]);
+        }
+        // 商品報價:附上改報價/改利潤按鈕,商品編號已經帶好,不用再手動輸入一次
+        const productId = String(result.productId);
         return client.pushMessage(pushTargetId, [
-          buildStepMessage(`✅ 已成立\n${label}⬇️`),
-          buildStepMessage(idText),
+          buildStepMessage(`✅ 已成立\n商品編號：${productId}`, {
+            quickReplyItems: [
+              { label: '✏️ 改報價', text: `改報價／${productId}` },
+              { label: '✏️ 改利潤', text: `改利潤／${productId}` },
+            ],
+          }),
         ]);
       })
       .catch((err) => {
