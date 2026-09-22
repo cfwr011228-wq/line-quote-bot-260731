@@ -1,75 +1,75 @@
 require('dotenv').config();
 const express = require('express');
-const line = require('@line/bot-sdk');
+const line = require('@linebot-sdk');
 
 const config = {
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.LINE_CHANNEL_SECRET,
+  channelAccessToken process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret process.env.LINE_CHANNEL_SECRET,
 };
 const client = new line.Client(config);
 const app = express();
 
-// ---------- 客人帳號（自助身分驗證、到貨通知用，跟內部帳號是不同的LINE Channel）----------
+ ---------- 客人帳號（自助身分驗證、到貨通知用，跟內部帳號是不同的LINE Channel）----------
 const customerConfig = {
-  channelAccessToken: process.env.CUSTOMER_LINE_CHANNEL_ACCESS_TOKEN,
-  channelSecret: process.env.CUSTOMER_LINE_CHANNEL_SECRET,
+  channelAccessToken process.env.CUSTOMER_LINE_CHANNEL_ACCESS_TOKEN,
+  channelSecret process.env.CUSTOMER_LINE_CHANNEL_SECRET,
 };
 const customerClient = new line.Client(customerConfig);
 
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
 const APPS_SCRIPT_SECRET = process.env.APPS_SCRIPT_SECRET;
 
-// 統一呼叫 Apps Script 的地方。之前每個函式各自寫一份 fetch+解析,失敗時只丟一句籠統的錯誤訊息、
-// 把真正的原始回應內容吞掉,導致Logs根本查不出問題出在哪。改成先用 res.text() 拿到原始文字,
-// 解析失敗時把「HTTP狀態碼」跟「回應內容前500字」印進 Logs,才看得出來是網址錯、部署過期、還是程式本身出錯。
-// 最底層：帶什麼payload都行,統一處理送出、解析回應、失敗時記錄診斷資訊。
+ 統一呼叫 Apps Script 的地方。之前每個函式各自寫一份 fetch+解析,失敗時只丟一句籠統的錯誤訊息、
+ 把真正的原始回應內容吞掉,導致Logs根本查不出問題出在哪。改成先用 res.text() 拿到原始文字,
+ 解析失敗時把「HTTP狀態碼」跟「回應內容前500字」印進 Logs,才看得出來是網址錯、部署過期、還是程式本身出錯。
+ 最底層：帶什麼payload都行,統一處理送出、解析回應、失敗時記錄診斷資訊。
 async function postAppsScript(payload, fallbackErrorMsg) {
   const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, ...payload }),
+    method 'POST',
+    headers { 'Content-Type' 'applicationjson' },
+    body JSON.stringify({ secret APPS_SCRIPT_SECRET, ...payload }),
   });
   const text = await res.text();
   let json;
   try {
     json = JSON.parse(text);
   } catch (e) {
-    console.error(`[postAppsScript] payload=${JSON.stringify(payload).slice(0, 200)} 回應不是合法JSON。HTTP狀態碼: ${res.status}`);
-    console.error(`[postAppsScript] 原始回應內容(前500字): ${text.slice(0, 500)}`);
+    console.error(`[postAppsScript] payload=${JSON.stringify(payload).slice(0, 200)} 回應不是合法JSON。HTTP狀態碼 ${res.status}`);
+    console.error(`[postAppsScript] 原始回應內容(前500字) ${text.slice(0, 500)}`);
     throw new Error('Apps Script 回應格式錯誤，請確認網址與部署設定');
   }
   if (!json.success) {
-    throw new Error(json.error || fallbackErrorMsg || '操作失敗');
+    throw new Error(json.error  fallbackErrorMsg  '操作失敗');
   }
   return json;
 }
 
-// 大多數功能是用 action 欄位分派,這裡包一層方便呼叫。
+ 大多數功能是用 action 欄位分派,這裡包一層方便呼叫。
 async function callAppsScript(action, extraPayload, fallbackErrorMsg) {
   return postAppsScript({ action, ...extraPayload }, fallbackErrorMsg);
 }
 
-// ---------- 對話狀態(記憶體版,重啟會遺失,正式上線建議換 Redis/DB) ----------
+ ---------- 對話狀態(記憶體版,重啟會遺失,正式上線建議換 RedisDB) ----------
 const sessions = new Map();
 
 const CURRENCY_META = {
-  '韓幣': { code: 'KRW', country: '韓國', emoji: '🇰🇷' },
-  '美金': { code: 'USD', country: '美國', emoji: '💵' },
-  '日幣': { code: 'JPY', country: '日本', emoji: '💴' },
-  '泰銖': { code: 'THB', country: '泰國', emoji: '🇹🇭' },
+  '韓幣' { code 'KRW', country '韓國', emoji '🇰🇷' },
+  '美金' { code 'USD', country '美國', emoji '💵' },
+  '日幣' { code 'JPY', country '日本', emoji '💴' },
+  '泰銖' { code 'THB', country '泰國', emoji '🇹🇭' },
 };
 
 const CATEGORY_EMOJI = {
-  '食品類': '🍔',
-  '玩具類': '🧸',
-  '電器用品': '🔌',
-  '藥品類': '💊',
-  '服飾類': '👕',
-  '美妝類': '💄',
-  '文具/雜貨': '✏️',
-  '寢具': '🛏️',
-  '噴霧類': '💨',
-  '保健食品': '🌿',
+  '食品類' '🍔',
+  '玩具類' '🧸',
+  '電器用品' '🔌',
+  '藥品類' '💊',
+  '服飾類' '👕',
+  '美妝類' '💄',
+  '文具雜貨' '✏️',
+  '寢具' '🛏️',
+  '噴霧類' '💨',
+  '保健食品' '🌿',
 };
 const CATEGORIES = Object.keys(CATEGORY_EMOJI);
 
@@ -79,75 +79,75 @@ function numberParser(text) {
   return n;
 }
 
-// 四捨五入到十位數(個位數變 0),例如 1234 -> 1230, 1235 -> 1240
+ 四捨五入到十位數(個位數變 0),例如 1234 - 1230, 1235 - 1240
 function roundTo10(n) {
-  return Math.round(n / 10) * 10;
+  return Math.round(n  10)  10;
 }
 
 function round2(n) {
-  return Math.round(n * 100) / 100;
+  return Math.round(n  100)  100;
 }
 
 function ceilTo10(n) {
-  return Math.ceil(n / 10) * 10;
+  return Math.ceil(n  10)  10;
 }
 
-// items: 陣列,每個可以是字串(label=text)或 {label, text}
+ items 陣列,每個可以是字串(label=text)或 {label, text}
 function quickReplyOf(items) {
   return {
-    items: items.map((it) => {
-      const label = typeof it === 'string' ? it : it.label;
-      const text = typeof it === 'string' ? it : it.text;
-      return { type: 'action', action: { type: 'message', label, text } };
+    items items.map((it) = {
+      const label = typeof it === 'string'  it  it.label;
+      const text = typeof it === 'string'  it  it.text;
+      return { type 'action', action { type 'message', label, text } };
     }),
   };
 }
 
-// 把選項陣列排成兩欄一列的色塊(區塊)按鈕,取代原本LINE系統原生的「快速回覆」圓角按鈕列。
-// 點下去的行為跟原本快速回覆一樣,都是送出跟文字選項一樣的訊息,所以後面解析文字的邏輯完全不用改。
+ 把選項陣列排成兩欄一列的色塊(區塊)按鈕,取代原本LINE系統原生的「快速回覆」圓角按鈕列。
+ 點下去的行為跟原本快速回覆一樣,都是送出跟文字選項一樣的訊息,所以後面解析文字的邏輯完全不用改。
 function buildBlockOptionsFlex(promptText, items) {
-  const normalized = items.map((it) => {
-    const label = typeof it === 'string' ? it : it.label;
-    const text = typeof it === 'string' ? it : it.text;
-    return { label: String(label), text: String(text) };
+  const normalized = items.map((it) = {
+    const label = typeof it === 'string'  it  it.label;
+    const text = typeof it === 'string'  it  it.text;
+    return { label String(label), text String(text) };
   });
 
   const rows = [];
-  for (let i = 0; i < normalized.length; i += 2) {
+  for (let i = 0; i  normalized.length; i += 2) {
     const pair = normalized.slice(i, i + 2);
     rows.push({
-      type: 'box',
-      layout: 'horizontal',
-      spacing: 'sm',
-      margin: i === 0 ? 'md' : 'sm',
-      contents: pair.map((it) => ({
-        type: 'box',
-        layout: 'vertical',
-        flex: 1,
-        backgroundColor: '#A9825F',
-        cornerRadius: '10px',
-        paddingAll: '10px',
-        justifyContent: 'center',
-        alignItems: 'center',
-        action: { type: 'message', label: it.label.slice(0, 20), text: it.text },
-        contents: [
-          { type: 'text', text: it.label, color: '#FFFFFF', size: 'sm', weight: 'bold', align: 'center', wrap: true },
+      type 'box',
+      layout 'horizontal',
+      spacing 'sm',
+      margin i === 0  'md'  'sm',
+      contents pair.map((it) = ({
+        type 'box',
+        layout 'vertical',
+        flex 1,
+        backgroundColor '#A9825F',
+        cornerRadius '10px',
+        paddingAll '10px',
+        justifyContent 'center',
+        alignItems 'center',
+        action { type 'message', label it.label.slice(0, 20), text it.text },
+        contents [
+          { type 'text', text it.label, color '#FFFFFF', size 'sm', weight 'bold', align 'center', wrap true },
         ],
       })),
     });
   }
 
   return {
-    type: 'flex',
-    altText: promptText.slice(0, 400),
-    contents: {
-      type: 'bubble',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        paddingAll: '16px',
-        contents: [
-          { type: 'text', text: promptText, size: 'sm', weight: 'bold', color: '#3A322A', wrap: true },
+    type 'flex',
+    altText promptText.slice(0, 400),
+    contents {
+      type 'bubble',
+      body {
+        type 'box',
+        layout 'vertical',
+        paddingAll '16px',
+        contents [
+          { type 'text', text promptText, size 'sm', weight 'bold', color '#3A322A', wrap true },
           ...rows,
         ],
       },
@@ -155,7 +155,7 @@ function buildBlockOptionsFlex(promptText, items) {
   };
 }
 
-// 下載 LINE 圖片,轉成 base64 字串
+ 下載 LINE 圖片,轉成 base64 字串
 async function getLineImageBase64(messageId) {
   const contentStream = await client.getMessageContent(messageId);
   const chunks = [];
@@ -165,70 +165,70 @@ async function getLineImageBase64(messageId) {
   return Buffer.concat(chunks).toString('base64');
 }
 
-// 一收到圖片就馬上呼叫 Apps Script 上傳到 Drive,不用等到整個流程最後一步才傳,
-// 這樣使用者填表單、選類別的這段時間圖片已經在背景傳完了,最後回覆速度會快很多。
-// 如果上傳失敗(例如網路不穩),就退回舊做法,把 base64 一起帶到最後一步再讓 Apps Script 處理。
+ 一收到圖片就馬上呼叫 Apps Script 上傳到 Drive,不用等到整個流程最後一步才傳,
+ 這樣使用者填表單、選類別的這段時間圖片已經在背景傳完了,最後回覆速度會快很多。
+ 如果上傳失敗(例如網路不穩),就退回舊做法,把 base64 一起帶到最後一步再讓 Apps Script 處理。
 async function uploadImageToDrive(base64) {
   const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'uploadImage', imageBase64: base64 }),
+    method 'POST',
+    headers { 'Content-Type' 'applicationjson' },
+    body JSON.stringify({ secret APPS_SCRIPT_SECRET, action 'uploadImage', imageBase64 base64 }),
   });
   const json = await res.json();
-  if (!json.success) throw new Error(json.error || '圖片上傳失敗');
+  if (!json.success) throw new Error(json.error  '圖片上傳失敗');
   return json.imageUrl;
 }
 
-// 免費、不用金鑰的匯率 API,回傳「1 台幣 = X 外幣」
+ 免費、不用金鑰的匯率 API,回傳「1 台幣 = X 外幣」
 async function fetchFxRate(code) {
-  const res = await fetch('https://open.er-api.com/v6/latest/TWD');
+  const res = await fetch('httpsopen.er-api.comv6latestTWD');
   const json = await res.json();
-  if (json.result !== 'success' || !json.rates || !json.rates[code]) {
+  if (json.result !== 'success'  !json.rates  !json.rates[code]) {
     throw new Error('匯率查詢失敗，請稍後再試一次');
   }
   const raw = json.rates[code];
-  return raw >= 10 ? Math.round(raw) : Math.round(raw * 100) / 100;
+  return raw = 10  Math.round(raw)  Math.round(raw  100)  100;
 }
 
-// 美金/免稅店方向相反,要換算成「1 美金 = X 台幣」
+ 美金免稅店方向相反,要換算成「1 美金 = X 台幣」
 async function fetchUsdToTwdRate() {
-  const res = await fetch('https://open.er-api.com/v6/latest/TWD');
+  const res = await fetch('httpsopen.er-api.comv6latestTWD');
   const json = await res.json();
-  if (json.result !== 'success' || !json.rates || !json.rates.USD) {
+  if (json.result !== 'success'  !json.rates  !json.rates.USD) {
     throw new Error('匯率查詢失敗，請稍後再試一次');
   }
-  return round2(1 / json.rates.USD);
+  return round2(1  json.rates.USD);
 }
 
-// 韓國運費(韓幣)沒有即時查詢的API,改成向 Apps Script 查上次使用的數字當預設值
+ 韓國運費(韓幣)沒有即時查詢的API,改成向 Apps Script 查上次使用的數字當預設值
 async function fetchLastKoreaShippingFee() {
   const res = await fetch(APPS_SCRIPT_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'getLastKoreaShippingFee' }),
+    method 'POST',
+    headers { 'Content-Type' 'applicationjson' },
+    body JSON.stringify({ secret APPS_SCRIPT_SECRET, action 'getLastKoreaShippingFee' }),
   });
   let json;
   try {
     json = await res.json();
   } catch (e) {
-    return 5300; // 查詢失敗就用一個保底預設值,不阻擋流程
+    return 5300;  查詢失敗就用一個保底預設值,不阻擋流程
   }
   if (!json.success) return 5300;
   return json.value;
 }
 
-// 查客人清單,把輸入(姓名/會員編號/組合格式)轉換成統一的「會員編號-姓名」格式。
-// 回傳 { resolved: '會員編號-姓名' } 表示只有一筆、直接可用;
-// 回傳 { candidates: [...] } 表示同名有多筆,呼叫端要跳出選單讓使用者選。
+ 查客人清單,把輸入(姓名會員編號組合格式)轉換成統一的「會員編號-姓名」格式。
+ 回傳 { resolved '會員編號-姓名' } 表示只有一筆、直接可用;
+ 回傳 { candidates [...] } 表示同名有多筆,呼叫端要跳出選單讓使用者選。
 async function resolveCustomerName(input) {
-  const json = await callAppsScript('lookupCustomer', { name: input }, '查詢失敗');
+  const json = await callAppsScript('lookupCustomer', { name input }, '查詢失敗');
   if (json.matches.length === 1) {
-    return { resolved: json.matches[0].combined };
+    return { resolved json.matches[0].combined };
   }
-  return { candidates: json.matches };
+  return { candidates json.matches };
 }
 
-// 查某位客人未付款訂單、組出回覆訊息、設定session,收款流程跟同名選擇流程都會用到
+ 查某位客人未付款訂單、組出回覆訊息、設定session,收款流程跟同名選擇流程都會用到
 async function startCollectPaymentForCustomer(customerName, userId) {
   let unpaid;
   try {
@@ -237,26 +237,26 @@ async function startCollectPaymentForCustomer(customerName, userId) {
     sessions.delete(userId);
     return buildStepMessage(`⚠️ ${err.message}`);
   }
-  if (!unpaid || unpaid.length === 0) {
+  if (!unpaid  unpaid.length === 0) {
     sessions.delete(userId);
     return buildStepMessage(`「${customerName}」目前沒有未付款的訂單。`);
   }
-  sessions.set(userId, { flow: 'collectPayment', step: 'awaitScope', data: { customerName, unpaidOrders: unpaid } });
+  sessions.set(userId, { flow 'collectPayment', step 'awaitScope', data { customerName, unpaidOrders unpaid } });
   const lines = [`「${customerName}」未付款訂單：`];
   let sum = 0;
-  unpaid.forEach((o) => {
-    lines.push(`${o.orderId}｜${o.name}${o.color ? '／' + o.color : ''}${o.size ? '／' + o.size : ''} x${o.quantity}｜$${o.total}`);
+  unpaid.forEach((o) = {
+    lines.push(`${o.orderId}｜${o.name}${o.color  '／' + o.color  ''}${o.size  '／' + o.size  ''} x${o.quantity}｜$${o.total}`);
     sum += o.total;
   });
   lines.push('——————————');
   lines.push(`💰 未付總金額：${sum}`);
 
   return [
-    buildStepMessage(lines.join('\n')),
+    buildStepMessage(lines.join('n')),
     buildStepMessage('請選擇付款範圍', {
-      quickReplyItems: [
-        { label: '✅ 全部付款', text: '全部付款' },
-        { label: '☑️ 部分付款', text: '部分付款' },
+      quickReplyItems [
+        { label '✅ 全部付款', text '全部付款' },
+        { label '☑️ 部分付款', text '部分付款' },
       ],
     }),
   ];
@@ -267,212 +267,212 @@ async function fetchCustomerToken(customerName) {
   return json.token;
 }
 
-// ------------------- 整段範本欄位定義 -------------------
-// type: 'text' | 'number' | 'price'(number 再四捨五入到十位數)
-// required: 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
+ ------------------- 整段範本欄位定義 -------------------
+ type 'text'  'number'  'price'(number 再四捨五入到十位數)
+ required 沒填會擋下來要求重填;沒有 required 也沒有 default 的欄位,空白視為略過(存 null)
 
 const PEER_TWD_FIELDS = [
-  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
-  { label: '商品品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表已含運費
-  { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '同行姓名', key 'peerName', type 'text', required true },
+  { label '商品品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '連結', key 'link', type 'text' },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
+  { label '原價', key 'originalPrice', type 'number' },
+  { label '售價', key 'price', type 'price', required true },
+  { label '重量（kg）', key 'weight', type 'number' },  選填,未填代表已含運費
+  { label '每公斤運費', key 'shippingRate', type 'number', default 200 },
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
 const PEER_KRW_FIELDS = [
-  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
-  { label: '商品品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number' }, // 選填,未填代表不加成
-  { label: '固定加價金額', key: 'flatFee', type: 'number' }, // 選填,未填代表不加
-  { label: '重量（kg）', key: 'weight', type: 'number', required: true },
-  { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
-  { label: '同行匯率', key: 'peerRate', type: 'number', default: 42 },
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '同行姓名', key 'peerName', type 'text', required true },
+  { label '商品品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '連結', key 'link', type 'text' },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
+  { label '原價', key 'originalPrice', type 'number' },
+  { label '售價', key 'price', type 'price', required true },
+  { label '買手費（%）', key 'buyerFeePercent', type 'number' },  選填,未填代表不加成
+  { label '固定加價金額', key 'flatFee', type 'number' },  選填,未填代表不加
+  { label '重量（kg）', key 'weight', type 'number', required true },
+  { label '每公斤運費', key 'shippingRate', type 'number', default 200 },
+  { label '同行匯率', key 'peerRate', type 'number', default 42 },
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
 const PEER_JPY_FIELDS = [
-  { label: '同行姓名', key: 'peerName', type: 'text', required: true },
-  { label: '商品品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'price', required: true },
-  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number' }, // 選填,未填代表不加成
-  { label: '固定加價金額', key: 'flatFee', type: 'number' }, // 選填,未填代表不加
-  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
-  { label: '每公斤運費', key: 'shippingRate', type: 'number', default: 200 },
-  { label: '同行匯率', key: 'peerRate', type: 'number', default: 0.21 }, // 1日幣=X台幣方向,跟韓幣相反
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '同行姓名', key 'peerName', type 'text', required true },
+  { label '商品品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '連結', key 'link', type 'text' },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
+  { label '原價', key 'originalPrice', type 'number' },
+  { label '售價', key 'price', type 'price', required true },
+  { label '買手費（%）', key 'buyerFeePercent', type 'number' },  選填,未填代表不加成
+  { label '固定加價金額', key 'flatFee', type 'number' },  選填,未填代表不加
+  { label '重量（kg）', key 'weight', type 'number' },  選填,未填代表親飛帶回,不加運費
+  { label '每公斤運費', key 'shippingRate', type 'number', default 200 },
+  { label '同行匯率', key 'peerRate', type 'number', default 0.21 },  1日幣=X台幣方向,跟韓幣相反
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
-const DUTY_FREE_STORES = { lotte: '樂天', shinsegae: '新世界', emart: '愛寶客', shilla: '新羅', hyundai: '現代' };
+const DUTY_FREE_STORES = { lotte '樂天', shinsegae '新世界', emart '愛寶客', shilla '新羅', hyundai '現代' };
 
-// 每間店各自一組「售價」+「連結」欄位,連結選填,填了的話那間店的售價會變成可以點的連結
+ 每間店各自一組「售價」+「連結」欄位,連結選填,填了的話那間店的售價會變成可以點的連結
 function buildDutyFreeStoreFields() {
   const fields = [];
-  Object.keys(DUTY_FREE_STORES).forEach((key) => {
-    fields.push({ label: `${DUTY_FREE_STORES[key]}售價`, key, type: 'number' });
-    fields.push({ label: `${DUTY_FREE_STORES[key]}連結`, key: `${key}Link`, type: 'text' });
+  Object.keys(DUTY_FREE_STORES).forEach((key) = {
+    fields.push({ label `${DUTY_FREE_STORES[key]}售價`, key, type 'number' });
+    fields.push({ label `${DUTY_FREE_STORES[key]}連結`, key `${key}Link`, type 'text' });
   });
   return fields;
 }
 
 const DUTY_FREE_ONLINE_FIELDS = [
-  { label: '品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
+  { label '品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
   ...buildDutyFreeStoreFields(),
-  { label: '重量（kg）', key: 'weight', type: 'number' },
-  { label: '匯率', key: 'fxRate', type: 'number' },
-  { label: '韓國運費（韓幣）', key: 'koreaShippingFee', type: 'number' }, // 每次帶入上次使用的數字,可直接覆蓋
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '重量（kg）', key 'weight', type 'number' },
+  { label '匯率', key 'fxRate', type 'number' },
+  { label '韓國運費（韓幣）', key 'koreaShippingFee', type 'number' },  每次帶入上次使用的數字,可直接覆蓋
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
 const DUTY_FREE_PHYSICAL_FIELDS = [
-  { label: '品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
+  { label '品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
   ...buildDutyFreeStoreFields(),
-  { label: '折扣1（金卡%）', key: 'discount1', type: 'number' },
-  { label: '折扣2（返點%）', key: 'discount2', type: 'number' },
-  { label: '重量（kg）', key: 'weight', type: 'number' },
-  { label: '匯率', key: 'fxRate', type: 'number' },
-  { label: '韓國運費（韓幣）', key: 'koreaShippingFee', type: 'number' }, // 每次帶入上次使用的數字,可直接覆蓋
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '折扣1（金卡%）', key 'discount1', type 'number' },
+  { label '折扣2（返點%）', key 'discount2', type 'number' },
+  { label '重量（kg）', key 'weight', type 'number' },
+  { label '匯率', key 'fxRate', type 'number' },
+  { label '韓國運費（韓幣）', key 'koreaShippingFee', type 'number' },  每次帶入上次使用的數字,可直接覆蓋
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
 function buildDutyFreeOnlineTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = DUTY_FREE_ONLINE_FIELDS.map((f) => {
-    if (f.key === 'fxRate') return { ...f, default: session.data.fxRate };
-    if (f.key === 'koreaShippingFee') return { ...f, default: session.data.koreaShippingFee };
+  const fieldsWithDynamicDefault = DUTY_FREE_ONLINE_FIELDS.map((f) = {
+    if (f.key === 'fxRate') return { ...f, default session.data.fxRate };
+    if (f.key === 'koreaShippingFee') return { ...f, default session.data.koreaShippingFee };
     return f;
   });
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
+    '請複製整段填寫、回傳n⚠️顏色／尺寸／款式／備註：選填n⚠️5間店的售價至少填一間，系統會自動抓最低價計算n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結n⚠️重量：選填，未填則為親飛帶回（不加運費）n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
     fieldsWithDynamicDefault
   );
 }
 
 function buildDutyFreePhysicalTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = DUTY_FREE_PHYSICAL_FIELDS.map((f) => {
-    if (f.key === 'fxRate') return { ...f, default: session.data.fxRate };
-    if (f.key === 'koreaShippingFee') return { ...f, default: session.data.koreaShippingFee };
+  const fieldsWithDynamicDefault = DUTY_FREE_PHYSICAL_FIELDS.map((f) = {
+    if (f.key === 'fxRate') return { ...f, default session.data.fxRate };
+    if (f.key === 'koreaShippingFee') return { ...f, default session.data.koreaShippingFee };
     return f;
   });
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️顏色／尺寸／款式／備註：選填\n⚠️5間店的售價至少填一間，系統會自動抓最低價計算\n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結\n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
+    '請複製整段填寫、回傳n⚠️顏色／尺寸／款式／備註：選填n⚠️5間店的售價至少填一間，系統會自動抓最低價計算n⚠️各店連結：選填，填了那間店的售價就會變成可以點的連結n⚠️折扣1／折扣2：選填（輸入百分比數字，例如5代表95折）n⚠️重量：選填，未填則為親飛帶回（不加運費）n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
     fieldsWithDynamicDefault
   );
 }
 
 const KOREA_KRW_FIELDS = [
-  { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
-  { label: '品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'number', required: true }, // 不做四捨五入,直接照打的存
-  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,不加運費
-  { label: '匯率', key: 'fxRate', type: 'number' },
-  { label: '韓國運費（韓幣）', key: 'koreaShippingFee', type: 'number' }, // 每次帶入上次使用的數字,可直接覆蓋
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '購買地點', key 'location', type 'text' },  選填,不填則帶入品牌
+  { label '品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '連結', key 'link', type 'text' },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
+  { label '原價', key 'originalPrice', type 'number' },
+  { label '售價', key 'price', type 'number', required true },  不做四捨五入,直接照打的存
+  { label '重量（kg）', key 'weight', type 'number' },  選填,未填代表親飛帶回,不加運費
+  { label '匯率', key 'fxRate', type 'number' },
+  { label '韓國運費（韓幣）', key 'koreaShippingFee', type 'number' },  每次帶入上次使用的數字,可直接覆蓋
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
 function buildKoreaKrwTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = KOREA_KRW_FIELDS.map((f) => {
-    if (f.key === 'fxRate') return { ...f, default: session.data.fxRate };
-    if (f.key === 'koreaShippingFee') return { ...f, default: session.data.koreaShippingFee };
+  const fieldsWithDynamicDefault = KOREA_KRW_FIELDS.map((f) = {
+    if (f.key === 'fxRate') return { ...f, default session.data.fxRate };
+    if (f.key === 'koreaShippingFee') return { ...f, default session.data.koreaShippingFee };
     return f;
   });
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（不加運費）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
+    '請複製整段填寫、回傳n⚠️購買地點：選填，不填則帶入品牌n⚠️連結／顏色／尺寸／款式／備註／原價：選填n⚠️重量：選填，未填則為親飛帶回（不加運費）n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改n⚠️韓國運費已帶入上次使用的數字，如需使用別的金額請直接修改',
     fieldsWithDynamicDefault
   );
 }
 
 const USA_FIELDS = [
-  { label: '購買地點', key: 'location', type: 'text' }, // 選填,不填則帶入品牌
-  { label: '品牌', key: 'brand', type: 'text', required: true },
-  { label: '商品名稱', key: 'name', type: 'text', required: true },
-  { label: '連結', key: 'link', type: 'text' },
-  { label: '顏色', key: 'color', type: 'text' },
-  { label: '尺寸', key: 'size', type: 'text' },
-  { label: '款式', key: 'style', type: 'text' },
-  { label: '備註', key: 'note', type: 'text' },
-  { label: '原價', key: 'originalPrice', type: 'number' },
-  { label: '售價', key: 'price', type: 'number', required: true },
-  { label: '重量（kg）', key: 'weight', type: 'number' }, // 選填,未填代表親飛帶回,運費+包材費都不收
-  { label: '匯率', key: 'fxRate', type: 'number' },
-  { label: '買手費（%）', key: 'buyerFeePercent', type: 'number', default: 10 },
-  { label: '運費（每磅）', key: 'shippingFeePerLb', type: 'number', default: 135 },
-  { label: '包材費', key: 'packagingFee', type: 'number', default: 30 },
-  { label: '利潤', key: 'profit', type: 'number', default: 200 },
+  { label '購買地點', key 'location', type 'text' },  選填,不填則帶入品牌
+  { label '品牌', key 'brand', type 'text', required true },
+  { label '商品名稱', key 'name', type 'text', required true },
+  { label '連結', key 'link', type 'text' },
+  { label '顏色', key 'color', type 'text' },
+  { label '尺寸', key 'size', type 'text' },
+  { label '款式', key 'style', type 'text' },
+  { label '備註', key 'note', type 'text' },
+  { label '原價', key 'originalPrice', type 'number' },
+  { label '售價', key 'price', type 'number', required true },
+  { label '重量（kg）', key 'weight', type 'number' },  選填,未填代表親飛帶回,運費+包材費都不收
+  { label '匯率', key 'fxRate', type 'number' },
+  { label '買手費（%）', key 'buyerFeePercent', type 'number', default 10 },
+  { label '運費（每磅）', key 'shippingFeePerLb', type 'number', default 135 },
+  { label '包材費', key 'packagingFee', type 'number', default 30 },
+  { label '利潤', key 'profit', type 'number', default 200 },
 ];
 
 function buildUsaTemplatePrompt(session) {
-  const fieldsWithDynamicDefault = USA_FIELDS.map((f) =>
-    f.key === 'fxRate' ? { ...f, default: session.data.fxRate } : f
+  const fieldsWithDynamicDefault = USA_FIELDS.map((f) =
+    f.key === 'fxRate'  { ...f, default session.data.fxRate }  f
   );
   return buildTemplateText(
-    '請複製整段填寫、回傳\n⚠️購買地點：選填，不填則帶入品牌\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為親飛帶回（運費、包材費都不收）\n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改\n⚠️運費是「每磅」美金135，重量請照樣輸入公斤，系統會自動換算成磅計費\n⚠️買手費／運費／包材費：可不填，不填就用預設值',
+    '請複製整段填寫、回傳n⚠️購買地點：選填，不填則帶入品牌n⚠️連結／顏色／尺寸／款式／備註／原價：選填n⚠️重量：選填，未填則為親飛帶回（運費、包材費都不收）n⚠️匯率已帶入本次使用匯率，如需使用別的匯率請直接修改n⚠️運費是「每磅」美金135，重量請照樣輸入公斤，系統會自動換算成磅計費n⚠️買手費／運費／包材費：可不填，不填就用預設值',
     fieldsWithDynamicDefault
   );
 }
 
 function buildTemplateText(instruction, fields) {
-  const lines = fields.map((f) => `${f.label}：${f.default !== undefined ? f.default : ''}`);
-  return `${instruction}\n\n${lines.join('\n')}`;
+  const lines = fields.map((f) = `${f.label}：${f.default !== undefined  f.default  ''}`);
+  return `${instruction}nn${lines.join('n')}`;
 }
 
 const PEER_TWD_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填\n⚠️重量：選填，未填則為已含運費',
+  '請複製整段填寫、回傳n⚠️連結／顏色／尺寸／款式／備註／原價：選填n⚠️重量：選填，未填則為已含運費',
   PEER_TWD_FIELDS
 );
 const PEER_KRW_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
+  '請複製整段填寫、回傳n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
   PEER_KRW_FIELDS
 );
 const PEER_JPY_TEMPLATE_PROMPT = buildTemplateText(
-  '請複製整段填寫、回傳\n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
+  '請複製整段填寫、回傳n⚠️連結／顏色／尺寸／款式／備註／原價：選填',
   PEER_JPY_FIELDS
 );
 
-// 解析使用者傳回的整段文字,依照每一行「標籤：值」對應欄位
+ 解析使用者傳回的整段文字,依照每一行「標籤：值」對應欄位
 function parseTemplate(text, fields, dynamicDefaults) {
-  dynamicDefaults = dynamicDefaults || {};
+  dynamicDefaults = dynamicDefaults  {};
   const map = {};
-  text.split('\n').forEach((line) => {
-    const idx = line.search(/[:：]/);
+  text.split('n').forEach((line) = {
+    const idx = line.search([：]);
     if (idx === -1) return;
     const label = line.slice(0, idx).trim();
     const value = line.slice(idx + 1).trim();
@@ -482,8 +482,8 @@ function parseTemplate(text, fields, dynamicDefaults) {
   const data = {};
   const missing = [];
 
-  fields.forEach((f) => {
-    const raw = map[f.label] || '';
+  fields.forEach((f) = {
+    const raw = map[f.label]  '';
 
     if (f.type === 'text') {
       if (!raw) {
@@ -495,7 +495,7 @@ function parseTemplate(text, fields, dynamicDefaults) {
       return;
     }
 
-    // number / price
+     number  price
     if (!raw) {
       if (f.default !== undefined) {
         data[f.key] = f.default;
@@ -509,7 +509,7 @@ function parseTemplate(text, fields, dynamicDefaults) {
       return;
     }
 
-    const m = raw.match(/-?\d+(\.\d+)?/);
+    const m = raw.match(-d+(.d+));
     if (!m) {
       missing.push(`${f.label}（請輸入數字）`);
       return;
@@ -519,48 +519,48 @@ function parseTemplate(text, fields, dynamicDefaults) {
     data[f.key] = num;
   });
 
-  if (missing.length > 0) {
+  if (missing.length  0) {
     throw new Error(`還缺少或格式不正確：${missing.join('、')}，請重新整段貼上`);
   }
   return data;
 }
 
-// 解析單一行,格式:識別碼/數量,或識別碼/數量/顏色/尺寸/款式
-// 識別碼可以是:商品編號(對照商品總表)、運費項目名稱(對照運費代碼表,例如「賣貨便免運」)、
-// 或關鍵字「折扣」(後面數字直接當金額,可以是負數)。
-// 顏色/尺寸/款式可以整段不填,也可以中間留空段(用連續的斜線代表跳過),例如:
-//   202608090016/2            -> 只有編號跟數量
-//   202608090016/2//XL/       -> 尺寸XL,顏色、款式留空
-//   賣貨便免運/1               -> 運費項目
-//   折扣/-100                  -> 折扣,直接扣100元
+ 解析單一行,格式識別碼數量,或識別碼數量顏色尺寸款式
+ 識別碼可以是商品編號(對照商品總表)、運費項目名稱(對照運費代碼表,例如「賣貨便免運」)、
+ 或關鍵字「折扣」(後面數字直接當金額,可以是負數)。
+ 顏色尺寸款式可以整段不填,也可以中間留空段(用連續的斜線代表跳過),例如
+   2026080900162            - 只有編號跟數量
+   2026080900162XL       - 尺寸XL,顏色、款式留空
+   賣貨便免運1               - 運費項目
+   折扣-100                  - 折扣,直接扣100元
 function parseOrderItemLine(line) {
-  const parts = line.split(/[\/／]/).map((s) => s.trim());
-  if (parts.length < 2) return null;
+  const parts = line.split([／]).map((s) = s.trim());
+  if (parts.length  2) return null;
   const identifier = parts[0];
   if (!identifier) return null;
-  if (!/^-?\d+(\.\d+)?$/.test(parts[1])) return null; // 數量/金額允許負數(折扣、扣運費用)
+  if (!^-d+(.d+)$.test(parts[1])) return null;  數量金額允許負數(折扣、扣運費用)
 
   return {
     identifier,
-    quantity: Number(parts[1]),
-    color: parts[2] ? parts[2] : null,
-    size: parts[3] ? parts[3] : null,
-    style: parts[4] ? parts[4] : null,
+    quantity Number(parts[1]),
+    color parts[2]  parts[2]  null,
+    size parts[3]  parts[3]  null,
+    style parts[4]  parts[4]  null,
   };
 }
 
-// 解析「新增訂單」整段文字:客人姓名 + 付款方式(選填)為「標籤：值」,
-// 商品編號/數量/顏色/尺寸/款式可以填很多行,顏色/尺寸/款式選填,例如 202608090016/2/紅/XL/長版
+ 解析「新增訂單」整段文字客人姓名 + 付款方式(選填)為「標籤：值」,
+ 商品編號數量顏色尺寸款式可以填很多行,顏色尺寸款式選填,例如 2026080900162紅XL長版
 function parseOrderTemplate(text) {
   let customerName = null;
   let paymentMethod = null;
   const items = [];
 
-  text.split('\n').forEach((rawLine) => {
+  text.split('n').forEach((rawLine) = {
     const line = rawLine.trim();
     if (!line) return;
 
-    const idx = line.search(/[:：]/);
+    const idx = line.search([：]);
     if (idx !== -1) {
       const label = line.slice(0, idx).trim();
       const value = line.slice(idx + 1).trim();
@@ -572,7 +572,7 @@ function parseOrderTemplate(text) {
         if (value) paymentMethod = value;
         return;
       }
-      // 「商品編號/數量/顏色/尺寸/款式：」這種標題行,如果值剛好也是商品行格式就一併收下,否則當標題略過
+       「商品編號數量顏色尺寸款式：」這種標題行,如果值剛好也是商品行格式就一併收下,否則當標題略過
       if (value) {
         const item = parseOrderItemLine(value);
         if (item) items.push(item);
@@ -580,7 +580,7 @@ function parseOrderTemplate(text) {
       return;
     }
 
-    // 沒有冒號的行,檢查是不是商品行
+     沒有冒號的行,檢查是不是商品行
     const item = parseOrderItemLine(line);
     if (item) items.push(item);
   });
@@ -588,45 +588,45 @@ function parseOrderTemplate(text) {
   const missing = [];
   if (!customerName) missing.push('客人姓名');
   if (items.length === 0) missing.push('商品編號／數量（格式：商品編號／數量，一行一組）');
-  if (missing.length > 0) {
+  if (missing.length  0) {
     throw new Error(`還缺少或格式不正確：${missing.join('、')}，請重新整段貼上`);
   }
 
   return { customerName, paymentMethod, items };
 }
 
-// ------------------- 流程定義 -------------------
+ ------------------- 流程定義 -------------------
 
 
 const PEER_TWD_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'peerTwdFields', type: 'template', fields: PEER_TWD_FIELDS, prompt: PEER_TWD_TEMPLATE_PROMPT },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
+  { key 'peerTwdFields', type 'template', fields PEER_TWD_FIELDS, prompt PEER_TWD_TEMPLATE_PROMPT },
 ];
 
 const PEER_KRW_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'peerKrwFields', type: 'template', fields: PEER_KRW_FIELDS, prompt: PEER_KRW_TEMPLATE_PROMPT },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
+  { key 'peerKrwFields', type 'template', fields PEER_KRW_FIELDS, prompt PEER_KRW_TEMPLATE_PROMPT },
 ];
 
 const PEER_JPY_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
-  { key: 'peerJpyFields', type: 'template', fields: PEER_JPY_FIELDS, prompt: PEER_JPY_TEMPLATE_PROMPT },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
+  { key 'peerJpyFields', type 'template', fields PEER_JPY_FIELDS, prompt PEER_JPY_TEMPLATE_PROMPT },
 ];
 
 const KOREA_KRW_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
   {
-    key: 'koreaKrwFields',
-    type: 'template',
-    fields: KOREA_KRW_FIELDS,
-    promptFn: buildKoreaKrwTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate, koreaShippingFee: session.data.koreaShippingFee }),
+    key 'koreaKrwFields',
+    type 'template',
+    fields KOREA_KRW_FIELDS,
+    promptFn buildKoreaKrwTemplatePrompt,
+    dynamicDefaultsFn (session) = ({ fxRate session.data.fxRate, koreaShippingFee session.data.koreaShippingFee }),
   },
   {
-    key: 'category',
-    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
-    prompt: '請選擇商品類別',
-    parse: (text) => {
+    key 'category',
+    quickReplyItems CATEGORIES.map((cat) = ({ label `${CATEGORY_EMOJI[cat]} ${cat}`, text cat })),
+    prompt '請選擇商品類別',
+    parse (text) = {
       if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
       return text;
     },
@@ -634,30 +634,30 @@ const KOREA_KRW_STEPS = [
 ];
 
 const USA_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
   {
-    key: 'usaFields',
-    type: 'template',
-    fields: USA_FIELDS,
-    promptFn: buildUsaTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate }),
+    key 'usaFields',
+    type 'template',
+    fields USA_FIELDS,
+    promptFn buildUsaTemplatePrompt,
+    dynamicDefaultsFn (session) = ({ fxRate session.data.fxRate }),
   },
 ];
 
 const DUTY_FREE_ONLINE_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
   {
-    key: 'dutyFreeOnlineFields',
-    type: 'template',
-    fields: DUTY_FREE_ONLINE_FIELDS,
-    promptFn: buildDutyFreeOnlineTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate, koreaShippingFee: session.data.koreaShippingFee }),
+    key 'dutyFreeOnlineFields',
+    type 'template',
+    fields DUTY_FREE_ONLINE_FIELDS,
+    promptFn buildDutyFreeOnlineTemplatePrompt,
+    dynamicDefaultsFn (session) = ({ fxRate session.data.fxRate, koreaShippingFee session.data.koreaShippingFee }),
   },
   {
-    key: 'category',
-    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
-    prompt: '請選擇商品類別',
-    parse: (text) => {
+    key 'category',
+    quickReplyItems CATEGORIES.map((cat) = ({ label `${CATEGORY_EMOJI[cat]} ${cat}`, text cat })),
+    prompt '請選擇商品類別',
+    parse (text) = {
       if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
       return text;
     },
@@ -665,19 +665,19 @@ const DUTY_FREE_ONLINE_STEPS = [
 ];
 
 const DUTY_FREE_PHYSICAL_STEPS = [
-  { key: 'imageBase64', type: 'image', prompt: '請傳送商品圖片📷' },
+  { key 'imageBase64', type 'image', prompt '請傳送商品圖片📷' },
   {
-    key: 'dutyFreePhysicalFields',
-    type: 'template',
-    fields: DUTY_FREE_PHYSICAL_FIELDS,
-    promptFn: buildDutyFreePhysicalTemplatePrompt,
-    dynamicDefaultsFn: (session) => ({ fxRate: session.data.fxRate, koreaShippingFee: session.data.koreaShippingFee }),
+    key 'dutyFreePhysicalFields',
+    type 'template',
+    fields DUTY_FREE_PHYSICAL_FIELDS,
+    promptFn buildDutyFreePhysicalTemplatePrompt,
+    dynamicDefaultsFn (session) = ({ fxRate session.data.fxRate, koreaShippingFee session.data.koreaShippingFee }),
   },
   {
-    key: 'category',
-    quickReplyItems: CATEGORIES.map((cat) => ({ label: `${CATEGORY_EMOJI[cat]} ${cat}`, text: cat })),
-    prompt: '請選擇商品類別',
-    parse: (text) => {
+    key 'category',
+    quickReplyItems CATEGORIES.map((cat) = ({ label `${CATEGORY_EMOJI[cat]} ${cat}`, text cat })),
+    prompt '請選擇商品類別',
+    parse (text) = {
       if (!CATEGORIES.includes(text)) throw new Error('請點選下方選單的類別');
       return text;
     },
@@ -685,55 +685,55 @@ const DUTY_FREE_PHYSICAL_STEPS = [
 ];
 
 const ORDER_TEMPLATE_PROMPT =
-  '請複製「客人姓名」以下的部分填寫、回傳\n' +
-  '⚠️商品編號請照商品總表上的編號填，系統會自動帶入品牌／名稱／單價\n' +
-  '⚠️一行一組商品，格式：識別碼／數量／顏色／尺寸／款式（用斜線分開）\n' +
-  '⚠️顏色／尺寸／款式選填，沒有的話該欄留空或整段不寫都可以\n' +
-  '⚠️運費、折扣、購物金不需在此填寫\n\n' +
-  '客人姓名：\n' +
+  '請複製「客人姓名」以下的部分填寫、回傳n' +
+  '⚠️商品編號請照商品總表上的編號填，系統會自動帶入品牌／名稱／單價n' +
+  '⚠️一行一組商品，格式：識別碼／數量／顏色／尺寸／款式（用斜線分開）n' +
+  '⚠️顏色／尺寸／款式選填，沒有的話該欄留空或整段不寫都可以n' +
+  '⚠️運費、折扣、購物金不需在此填寫nn' +
+  '客人姓名：n' +
   '商品編號／數量／顏色／尺寸／款式：';
 
-// 常用出貨方式,點下去直接加,不用打金額(金額查運費代碼表)
+ 常用出貨方式,點下去直接加,不用打金額(金額查運費代碼表)
 const ORDER_EXTRA_PRESETS = [
-  { label: '📦 賣貨便_免運', text: '加賣貨便免運', identifier: '賣貨便_免運' },
-  { label: '📦 賣貨便_預留款', text: '加賣貨便預留款', identifier: '賣貨便_預留款' },
-  { label: '↩️ 賣貨便_退預留款', text: '加賣貨便退預留款', identifier: '賣貨便_退預留款' },
+  { label '📦 賣貨便_免運', text '加賣貨便免運', identifier '賣貨便_免運' },
+  { label '📦 賣貨便_預留款', text '加賣貨便預留款', identifier '賣貨便_預留款' },
+  { label '↩️ 賣貨便_退預留款', text '加賣貨便退預留款', identifier '賣貨便_退預留款' },
 ];
-// 收在「其他」按鈕裡的出貨方式,一樣點了直接加、不用打金額
+ 收在「其他」按鈕裡的出貨方式,一樣點了直接加、不用打金額
 const ORDER_EXTRA_OTHER_PRESETS = [
-  { label: '🚛 宅配', text: '加宅配', identifier: '宅配' },
-  { label: '🚛 宅配_免運', text: '加宅配免運', identifier: '宅配_免運' },
+  { label '🚛 宅配', text '加宅配', identifier '宅配' },
+  { label '🚛 宅配_免運', text '加宅配免運', identifier '宅配_免運' },
 ];
-// 面交需要另外選是哪一位
+ 面交需要另外選是哪一位
 const MEETUP_PEOPLE = ['小芳', '新竹好市多', '竹北享平方', '宛柔', '苗栗市面交'];
-// 收在「其他」按鈕裡,選了才問金額
+ 收在「其他」按鈕裡,選了才問金額
 const ORDER_EXTRA_OTHER_TYPES = [
-  { label: '💸 折扣', text: '加折扣', identifier: '折扣' },
-  { label: '🚚 韓國境內運費', text: '加韓國境內運費', identifier: '韓國境內運費' },
-  { label: '🎁 使用購物金', text: '加購物金', identifier: '購物金' },
+  { label '💸 折扣', text '加折扣', identifier '折扣' },
+  { label '🚚 韓國境內運費', text '加韓國境內運費', identifier '韓國境內運費' },
+  { label '🎁 使用購物金', text '加購物金', identifier '購物金' },
 ];
 
 const ORDER_STEPS = [
-  { key: 'orderFields', type: 'orderItems', prompt: ORDER_TEMPLATE_PROMPT },
+  { key 'orderFields', type 'orderItems', prompt ORDER_TEMPLATE_PROMPT },
 ];
 
 const FLOWS = {
-  peerTwd: PEER_TWD_STEPS,
-  peerKrw: PEER_KRW_STEPS,
-  peerJpy: PEER_JPY_STEPS,
-  koreaKrw: KOREA_KRW_STEPS,
-  usa: USA_STEPS,
-  dutyFreeOnline: DUTY_FREE_ONLINE_STEPS,
-  dutyFreePhysical: DUTY_FREE_PHYSICAL_STEPS,
-  order: ORDER_STEPS,
+  peerTwd PEER_TWD_STEPS,
+  peerKrw PEER_KRW_STEPS,
+  peerJpy PEER_JPY_STEPS,
+  koreaKrw KOREA_KRW_STEPS,
+  usa USA_STEPS,
+  dutyFreeOnline DUTY_FREE_ONLINE_STEPS,
+  dutyFreePhysical DUTY_FREE_PHYSICAL_STEPS,
+  order ORDER_STEPS,
 };
 
-// 保活排程(例如 cron-job.org)呼叫這個路徑就好,單純回應 OK,不會動到任何 LINE 訊息處理邏輯
-app.get('/', (req, res) => res.status(200).send('OK'));
+ 保活排程(例如 cron-job.org)呼叫這個路徑就好,單純回應 OK,不會動到任何 LINE 訊息處理邏輯
+app.get('', (req, res) = res.status(200).send('OK'));
 
-// ------------------- LINE webhook -------------------
+ ------------------- LINE webhook -------------------
 
-app.post('/webhook', line.middleware(config), async (req, res) => {
+app.post('webhook', line.middleware(config), async (req, res) = {
   try {
     await Promise.all(req.body.events.map(handleEvent));
     res.status(200).end();
@@ -743,9 +743,9 @@ app.post('/webhook', line.middleware(config), async (req, res) => {
   }
 });
 
-// ------------------- 客人帳號 webhook（身分驗證）-------------------
+ ------------------- 客人帳號 webhook（身分驗證）-------------------
 
-app.post('/webhook-customer', line.middleware(customerConfig), async (req, res) => {
+app.post('webhook-customer', line.middleware(customerConfig), async (req, res) = {
   try {
     await Promise.all(req.body.events.map(handleCustomerEvent));
     res.status(200).end();
@@ -755,52 +755,52 @@ app.post('/webhook-customer', line.middleware(customerConfig), async (req, res) 
   }
 });
 
-// 格式：姓名+電話（用「+」分隔），例如「王小明+0912345678」
-const MEMBER_VERIFY_PATTERN = /^(.+?)\+(\d{8,10})$/;
+ 格式：姓名+電話（用「+」分隔），例如「王小明+0912345678」
+const MEMBER_VERIFY_PATTERN = ^(.+)+(d{8,10})$;
 
 async function handleCustomerEvent(event) {
   try {
-    if (event.type !== 'message' || event.message.type !== 'text') return;
+    if (event.type !== 'message'  event.message.type !== 'text') return;
 
     const text = event.message.text.trim();
     const match = text.match(MEMBER_VERIFY_PATTERN);
-    if (!match) return; // 不符合驗證格式的訊息，不處理，讓你們照舊在LINE後台手動回覆
+    if (!match) return;  不符合驗證格式的訊息，不處理，讓你們照舊在LINE後台手動回覆
 
     const name = match[1].trim();
     const phone = match[2];
     const userId = event.source.userId;
 
     const verifyRes = await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'verifyMemberIdentity', name, phone }),
+      method 'POST',
+      headers { 'Content-Type' 'applicationjson' },
+      body JSON.stringify({ secret APPS_SCRIPT_SECRET, action 'verifyMemberIdentity', name, phone }),
     });
     const verifyJson = await verifyRes.json();
 
     if (!verifyJson.success) {
       await customerClient.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '查無這筆資料，請確認「姓名」與「電話」是否正確，重新傳一次「姓名+電話」給我 🙏',
+        type 'text',
+        text '查無這筆資料，請確認「姓名」與「電話」是否正確，重新傳一次「姓名+電話」給我 🙏',
       });
       return;
     }
 
     await fetch(APPS_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: APPS_SCRIPT_SECRET, action: 'saveLineBinding', memberId: verifyJson.memberId, userId }),
+      method 'POST',
+      headers { 'Content-Type' 'applicationjson' },
+      body JSON.stringify({ secret APPS_SCRIPT_SECRET, action 'saveLineBinding', memberId verifyJson.memberId, userId }),
     });
 
     await customerClient.replyMessage(event.replyToken, {
-      type: 'text',
-      text: `綁定成功 🎉\n會員編號：${verifyJson.memberId}\n姓名：${verifyJson.name}\n電話：${verifyJson.phone}`,
+      type 'text',
+      text `綁定成功 🎉n會員編號：${verifyJson.memberId}n姓名：${verifyJson.name}n電話：${verifyJson.phone}`,
     });
   } catch (err) {
     console.error(err);
     try {
       await customerClient.replyMessage(event.replyToken, {
-        type: 'text',
-        text: '⚠️ 系統發生錯誤，請稍後再試一次，或直接留言給我們，我們會手動處理。',
+        type 'text',
+        text '⚠️ 系統發生錯誤，請稍後再試一次，或直接留言給我們，我們會手動處理。',
       });
     } catch (replyErr) {
       console.error(replyErr);
@@ -809,57 +809,57 @@ async function handleCustomerEvent(event) {
 }
 
 function newSession(flow) {
-  return { flow, stepIndex: 0, data: {} };
+  return { flow, stepIndex 0, data {} };
 }
 
-// 推播訊息(pushMessage)要指定送到哪裡,跟回覆(replyMessage)不一樣,不會自動跟著訊息來源走。
-// 在群組/多人聊天室裡用機器人,要送到那個群組/聊天室,而不是送到發話者的個人一對一對話,不然客服會收不到、只有發話的人自己看得到。
+ 推播訊息(pushMessage)要指定送到哪裡,跟回覆(replyMessage)不一樣,不會自動跟著訊息來源走。
+ 在群組多人聊天室裡用機器人,要送到那個群組聊天室,而不是送到發話者的個人一對一對話,不然客服會收不到、只有發話的人自己看得到。
 function getPushTargetId(event) {
   if (event.source.type === 'group') return event.source.groupId;
   if (event.source.type === 'room') return event.source.roomId;
   return event.source.userId;
 }
 
-// 依流程判斷要用哪個國旗表情符號
+ 依流程判斷要用哪個國旗表情符號
 function flagForFlow(flow, data) {
-  if (flow === 'koreaKrw' || flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical' || flow === 'peerKrw') return '🇰🇷';
+  if (flow === 'koreaKrw'  flow === 'dutyFreeOnline'  flow === 'dutyFreePhysical'  flow === 'peerKrw') return '🇰🇷';
   if (flow === 'peerTwd') return '🇹🇼';
   if (flow === 'peerJpy') return '🇯🇵';
   if (flow === 'usa') return '🇺🇸';
   return '';
 }
 
-// 簡短摘要:國旗品牌 / 商品名稱 / 顏色尺寸款式(有才顯示) / $報價,報價完成、改報價、改利潤之後都會附上這個
+ 簡短摘要國旗品牌  商品名稱  顏色尺寸款式(有才顯示)  $報價,報價完成、改報價、改利潤之後都會附上這個
 function buildShortSummary(flag, brand, name, total, color, size, style) {
   const lines = [`${flag}${brand}`, name];
   const details = [];
   if (color) details.push(`顏色｜${color}`);
   if (size) details.push(`尺寸｜${size}`);
   if (style) details.push(`款式｜${style}`);
-  if (details.length > 0) {
+  if (details.length  0) {
     lines.push('', ...details);
   }
   lines.push('', `$${total}`);
-  return lines.join('\n');
+  return lines.join('n');
 }
 
 function stepPrompt(step, session) {
-  return step.promptFn ? step.promptFn(session) : step.prompt;
+  return step.promptFn  step.promptFn(session)  step.prompt;
 }
 
 function buildStepMessage(text, step) {
-  if (step && step.quickReplyItems && step.quickReplyItems.length > 0) {
+  if (step && step.quickReplyItems && step.quickReplyItems.length  0) {
     return buildBlockOptionsFlex(text, step.quickReplyItems);
   }
-  return { type: 'text', text };
+  return { type 'text', text };
 }
 
-// 自動跳過 condition 為 false 的欄位(帶入預設值),回傳下一個要顯示的步驟(或 null 代表流程結束)
+ 自動跳過 condition 為 false 的欄位(帶入預設值),回傳下一個要顯示的步驟(或 null 代表流程結束)
 function advance(steps, session) {
-  while (session.stepIndex < steps.length) {
+  while (session.stepIndex  steps.length) {
     const step = steps[session.stepIndex];
     if (step.condition && !step.condition(session.data)) {
-      session.data[step.key] = step.defaultValue !== undefined ? step.defaultValue : null;
+      session.data[step.key] = step.defaultValue !== undefined  step.defaultValue  null;
       session.stepIndex += 1;
       continue;
     }
@@ -868,11 +868,11 @@ function advance(steps, session) {
   return null;
 }
 
-// 開始一個流程,把「額外訊息(例如匯率)+第一步(通常是傳圖片)+如果緊接著是範本步驟就一次帶出來」
-// 一次回傳,這樣使用者傳圖片、等上傳的空檔就能先準備好範本內容,不用等圖片傳完才看到格式。
+ 開始一個流程,把「額外訊息(例如匯率)+第一步(通常是傳圖片)+如果緊接著是範本步驟就一次帶出來」
+ 一次回傳,這樣使用者傳圖片、等上傳的空檔就能先準備好範本內容,不用等圖片傳完才看到格式。
 function startFlowMessages(steps, session, infoMessages) {
   const firstStep = advance(steps, session);
-  const messages = (infoMessages || []).map((t) => buildStepMessage(t));
+  const messages = (infoMessages  []).map((t) = buildStepMessage(t));
   messages.push(buildStepMessage(stepPrompt(firstStep, session), firstStep));
 
   const nextStep = steps[session.stepIndex + 1];
@@ -888,12 +888,12 @@ async function handleEvent(event) {
     return await handleEventInner(event);
   } catch (err) {
     console.error(err);
-    // 安全網:任何沒被個別流程接住的錯誤,都在這裡攔下來回一句話,不要讓使用者完全沒反應、一直空等
+     安全網任何沒被個別流程接住的錯誤,都在這裡攔下來回一句話,不要讓使用者完全沒反應、一直空等
     if (event.type === 'message' && event.replyToken) {
       try {
-        return await client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 發生非預期的錯誤：${err.message}\n請重新操作一次，或輸入「取消」重來。`));
+        return await client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 發生非預期的錯誤：${err.message}n請重新操作一次，或輸入「取消」重來。`));
       } catch (replyErr) {
-        console.error(replyErr); // 連回覆都失敗就真的沒辦法了,至少記錄下來
+        console.error(replyErr);  連回覆都失敗就真的沒辦法了,至少記錄下來
       }
     }
   }
@@ -902,7 +902,7 @@ async function handleEvent(event) {
 async function handleEventInner(event) {
   if (event.type !== 'message') return;
   const userId = event.source.userId;
-  const text = event.message.type === 'text' ? event.message.text.trim() : null;
+  const text = event.message.type === 'text'  event.message.text.trim()  null;
 
   if (text === '取消') {
     sessions.delete(userId);
@@ -934,20 +934,20 @@ async function handleEventInner(event) {
     } catch (err) {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
     }
-    if (!groups || groups.length === 0) {
+    if (!groups  groups.length === 0) {
       return client.replyMessage(event.replyToken, buildStepMessage('目前沒有還需要叫貨的商品 🎉'));
     }
     const messages = [buildProcurementCarousel(groups)];
-    if (groups.length > 12) {
+    if (groups.length  12) {
       messages.push(buildStepMessage(`⚠️ 採購來源有${groups.length}個，超過LINE卡片上限12張，只顯示前12個，其餘請去採購表查看。`));
     }
     return client.replyMessage(event.replyToken, messages);
   }
 
   if (text === '收件資料') {
-    sessions.set(userId, { flow: 'shippingInfo', data: {} });
+    sessions.set(userId, { flow 'shippingInfo', data {} });
     return client.replyMessage(event.replyToken, buildStepMessage(
-      '請貼上「會員編號」+客人回傳的收件資料（客人回傳的內容整段照貼即可，不用改格式，系統會自動判斷是7-11還是宅配）\n\n例如：\nBM250005\n收件人姓名：王大明\n收件人電話：0912345678\n7-11門市店號(6碼)：952626\n7-11門市名字：苗碩\n備註：'
+      '請貼上「會員編號」+客人回傳的收件資料（客人回傳的內容整段照貼即可，不用改格式，系統會自動判斷是7-11還是宅配）nn例如：nBM250005n收件人姓名：王大明n收件人電話：0912345678n7-11門市店號(6碼)：952626n7-11門市名字：苗碩n備註：'
     ));
   }
 
@@ -960,61 +960,61 @@ async function handleEventInner(event) {
     }
   }
 
-  if (text === '選單' || text === '功能' || text === 'menu') {
+  if (text === '選單'  text === '功能'  text === 'menu') {
     return client.replyMessage(event.replyToken, buildStepMessage('請選擇要做什麼', {
-      quickReplyItems: [
-        { label: '🧾 報價', text: '報價選單' },
-        { label: '📦 訂單', text: '訂單選單' },
-        { label: '🛠️ 管理', text: '管理選單' },
+      quickReplyItems [
+        { label '🧾 報價', text '報價選單' },
+        { label '📦 訂單', text '訂單選單' },
+        { label '🛠️ 管理', text '管理選單' },
       ],
     }));
   }
 
-  if (text === '報價選單' || text === '報價') {
+  if (text === '報價選單'  text === '報價') {
     return client.replyMessage(event.replyToken, buildStepMessage('要建立哪一種報價？', {
-      quickReplyItems: [
-        { label: '🤝 同行報價', text: '同行報價' },
-        { label: '🇰🇷 韓國代購', text: '韓國代購' },
-        { label: '🛬 線上免稅店', text: '線上免稅店' },
-        { label: '🏬 實體免稅店', text: '實體免稅店' },
-        { label: '🇺🇸 美國代購', text: '美國代購' },
-        { label: '📷 批次貼圖', text: '批次貼圖' },
+      quickReplyItems [
+        { label '🤝 同行報價', text '同行報價' },
+        { label '🇰🇷 韓國代購', text '韓國代購' },
+        { label '🛬 線上免稅店', text '線上免稅店' },
+        { label '🏬 實體免稅店', text '實體免稅店' },
+        { label '🇺🇸 美國代購', text '美國代購' },
+        { label '📷 批次貼圖', text '批次貼圖' },
       ],
     }));
   }
 
-  if (text === '訂單選單' || text === '訂單') {
+  if (text === '訂單選單'  text === '訂單') {
     return client.replyMessage(event.replyToken, buildStepMessage('要做什麼訂單相關的事？', {
-      quickReplyItems: [
-        { label: '🛒 新增訂單', text: '新增訂單' },
-        { label: '💰 收款', text: '收款' },
-        { label: '📋 客戶明細', text: '客戶明細' },
-        { label: '📮 收件資料', text: '收件資料' },
+      quickReplyItems [
+        { label '🛒 新增訂單', text '新增訂單' },
+        { label '💰 收款', text '收款' },
+        { label '📋 客戶明細', text '客戶明細' },
+        { label '📮 收件資料', text '收件資料' },
       ],
     }));
   }
 
-  if (text === '管理選單' || text === '管理') {
+  if (text === '管理選單'  text === '管理') {
     return client.replyMessage(event.replyToken, buildStepMessage('要修改什麼？', {
-      quickReplyItems: [
-        { label: '✏️ 改報價', text: '改報價' },
-        { label: '✏️ 改利潤', text: '改利潤' },
-        { label: '📦 更新採購表', text: '更新採購表' },
-        { label: '📊 更新營收表', text: '更新營收表' },
-        { label: '📋 採購清單', text: '採購清單' },
+      quickReplyItems [
+        { label '✏️ 改報價', text '改報價' },
+        { label '✏️ 改利潤', text '改利潤' },
+        { label '📦 更新採購表', text '更新採購表' },
+        { label '📊 更新營收表', text '更新營收表' },
+        { label '📋 採購清單', text '採購清單' },
       ],
     }));
   }
 
   if (text === '同行報價') {
-    sessions.set(userId, { flow: 'peerSelect', stepIndex: 0, data: {} });
+    sessions.set(userId, { flow 'peerSelect', stepIndex 0, data {} });
     return client.replyMessage(
       event.replyToken,
       buildStepMessage('請選擇報價類型', {
-        quickReplyItems: [
-          { label: '🇹🇼 台幣報價', text: '台幣報價' },
-          { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
-          { label: '🇯🇵 日幣報價', text: '日幣報價' },
+        quickReplyItems [
+          { label '🇹🇼 台幣報價', text '台幣報價' },
+          { label '🇰🇷 韓幣報價', text '韓幣報價' },
+          { label '🇯🇵 日幣報價', text '日幣報價' },
         ],
       })
     );
@@ -1028,7 +1028,7 @@ async function handleEventInner(event) {
     const usedRate = round2(liveRate - 4);
     session.data.fxRate = usedRate;
     session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
-    const infoMsg = `今日參考匯率：台幣 1：${liveRate}（韓國）\n本次報價使用匯率：1：${usedRate}（即時匯率−4）`;
+    const infoMsg = `今日參考匯率：台幣 1：${liveRate}（韓國）n本次報價使用匯率：1：${usedRate}（即時匯率−4）`;
     return client.replyMessage(event.replyToken, startFlowMessages(KOREA_KRW_STEPS, session, [infoMsg]));
   }
 
@@ -1039,7 +1039,7 @@ async function handleEventInner(event) {
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
     session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
-    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣\n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
+    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_ONLINE_STEPS, session, [infoMsg]));
   }
 
@@ -1050,7 +1050,7 @@ async function handleEventInner(event) {
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
     session.data.koreaShippingFee = await fetchLastKoreaShippingFee();
-    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣\n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
+    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(DUTY_FREE_PHYSICAL_STEPS, session, [infoMsg]));
   }
 
@@ -1060,21 +1060,21 @@ async function handleEventInner(event) {
     const liveRate = await fetchUsdToTwdRate();
     const usedRate = round2(liveRate + 1);
     session.data.fxRate = usedRate;
-    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣\n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
+    const infoMsg = `今日參考匯率：1美金：${liveRate}台幣n本次報價使用匯率：1美金：${usedRate}台幣（即時匯率+1）`;
     return client.replyMessage(event.replyToken, startFlowMessages(USA_STEPS, session, [infoMsg]));
   }
 
   if (text === '批次貼圖') {
-    sessions.set(userId, { flow: 'batchPhotoSelect', data: {} });
+    sessions.set(userId, { flow 'batchPhotoSelect', data {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請選擇要批次貼圖的報價類型', {
-      quickReplyItems: [
-        { label: '🇰🇷 韓國代購', text: '批次-韓國' },
-        { label: '🇰🇷 韓免線上', text: '批次-韓免線上' },
-        { label: '🇰🇷 韓免實體', text: '批次-韓免實體' },
-        { label: '🇺🇸 美國代購', text: '批次-美國' },
-        { label: '🤝 同行台幣', text: '批次-同行台幣' },
-        { label: '🤝 同行韓幣', text: '批次-同行韓幣' },
-        { label: '🤝 同行日幣', text: '批次-同行日幣' },
+      quickReplyItems [
+        { label '🇰🇷 韓國代購', text '批次-韓國' },
+        { label '🇰🇷 韓免線上', text '批次-韓免線上' },
+        { label '🇰🇷 韓免實體', text '批次-韓免實體' },
+        { label '🇺🇸 美國代購', text '批次-美國' },
+        { label '🤝 同行台幣', text '批次-同行台幣' },
+        { label '🤝 同行韓幣', text '批次-同行韓幣' },
+        { label '🤝 同行日幣', text '批次-同行日幣' },
       ],
     }));
   }
@@ -1087,137 +1087,137 @@ async function handleEventInner(event) {
   }
 
   if (text === '收款') {
-    sessions.set(userId, { flow: 'collectPayment', step: 'awaitName', data: {} });
+    sessions.set(userId, { flow 'collectPayment', step 'awaitName', data {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入客人姓名'));
   }
 
   if (text === '客戶明細') {
-    sessions.set(userId, { flow: 'customerSummary', step: 'awaitName', data: {} });
+    sessions.set(userId, { flow 'customerSummary', step 'awaitName', data {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入客人姓名'));
   }
 
-  // 從「已成立」或「改報價/改利潤」完成後附的按鈕點過來的,格式：改報價／BM12345,商品編號已經帶好,不用再輸入一次
-  const overrideWithIdMatch = text.match(/^(改報價|改利潤)／(.+)$/);
+   從「已成立」或「改報價改利潤」完成後附的按鈕點過來的,格式：改報價／BM12345,商品編號已經帶好,不用再輸入一次
+  const overrideWithIdMatch = text && text.match(^(改報價改利潤)／(.+)$);
   if (overrideWithIdMatch) {
-    const field = overrideWithIdMatch[1] === '改報價' ? 'quote' : 'profit';
-    const label = overrideWithIdMatch[1] === '改報價' ? '報價' : '利潤';
+    const field = overrideWithIdMatch[1] === '改報價'  'quote'  'profit';
+    const label = overrideWithIdMatch[1] === '改報價'  '報價'  '利潤';
     const productId = overrideWithIdMatch[2].trim();
-    sessions.set(userId, { flow: 'override', field, stepIndex: 0, data: { productId } });
-    return client.replyMessage(event.replyToken, buildStepMessage(`商品編號：${productId}\n請輸入新的${label}金額`));
+    sessions.set(userId, { flow 'override', field, stepIndex 0, data { productId } });
+    return client.replyMessage(event.replyToken, buildStepMessage(`商品編號：${productId}n請輸入新的${label}金額`));
   }
 
-  if (text === '改報價' || text === '改利潤') {
-    sessions.set(userId, { flow: 'override', field: text === '改報價' ? 'quote' : 'profit', stepIndex: 0, data: {} });
+  if (text === '改報價'  text === '改利潤') {
+    sessions.set(userId, { flow 'override', field text === '改報價'  'quote'  'profit', stepIndex 0, data {} });
     return client.replyMessage(event.replyToken, buildStepMessage('請輸入要修改的商品編號'));
   }
 
   const session = sessions.get(userId);
   if (!session) {
     return client.replyMessage(event.replyToken, buildStepMessage(
-      '輸入「選單」查看所有功能\n\n' +
-      '📋 報價\n・同行報價\n・韓國代購／線上免稅店／實體免稅店／美國代購\n・批次貼圖\n\n' +
-      '📦 訂單\n・新增訂單\n・收款\n・客戶明細\n・收件資料\n\n' +
-      '🛠️ 管理\n・改報價／改利潤\n・更新採購表／更新營收表\n・採購清單'
+      '輸入「選單」查看所有功能nn' +
+      '📋 報價n・同行報價n・韓國代購／線上免稅店／實體免稅店／美國代購n・批次貼圖nn' +
+      '📦 訂單n・新增訂單n・收款n・客戶明細n・收件資料nn' +
+      '🛠️ 管理n・改報價／改利潤n・更新採購表／更新營收表n・採購清單'
     ));
   }
 
   if (session.flow === 'shippingInfo') {
     const parsed = parseShippingPaste(text);
-    if (!parsed || !parsed.customerId) {
+    if (!parsed  !parsed.customerId) {
       return client.replyMessage(event.replyToken, buildStepMessage('沒有偵測到會員編號，請確認第一行是會員編號（例如 BM250005），重新貼上（或輸入「取消」放棄這次）。'));
     }
     sessions.delete(userId);
     try {
       await submitUpdateCustomerShipping(parsed);
-      const methodLabel = parsed.method === '7-11' ? '7-11' : parsed.method === '宅配' ? '宅配' : '（未偵測到取貨方式，麻煩確認訊息裡有沒有「7-11門市店號」或「地址」）';
-      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 已更新「${parsed.customerId}」的收件資料\n取貨方式：${methodLabel}`));
+      const methodLabel = parsed.method === '7-11'  '7-11'  parsed.method === '宅配'  '宅配'  '（未偵測到取貨方式，麻煩確認訊息裡有沒有「7-11門市店號」或「地址」）';
+      return client.replyMessage(event.replyToken, buildStepMessage(`✅ 已更新「${parsed.customerId}」的收件資料n取貨方式：${methodLabel}`));
     } catch (err) {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 更新失敗：${err.message}`));
     }
   }
 
   if (session.flow === 'orderCustomerDisambiguate') {
-    const chosen = session.data.pendingCandidates.find((c) => c.combined === text.trim());
+    const chosen = session.data.pendingCandidates.find((c) = c.combined === text.trim());
     if (!chosen) {
       return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選擇客人', {
-        quickReplyItems: session.data.pendingCandidates.map((c) => ({ label: c.combined, text: c.combined })),
+        quickReplyItems session.data.pendingCandidates.map((c) = ({ label c.combined, text c.combined })),
       }));
     }
     session.data.customerName = chosen.combined;
     delete session.data.pendingCandidates;
     session.flow = 'orderExtras';
-    return client.replyMessage(event.replyToken, buildStepMessage(`已選擇「${chosen.combined}」✅\n要加運費／出貨方式嗎？`, {
-      quickReplyItems: [
-        ...ORDER_EXTRA_PRESETS.map((t) => ({ label: t.label, text: t.text })),
-        { label: '🤝 面交', text: '加面交' },
-        { label: '➕ 其他', text: '其他項目' },
-        { label: '✅ 都不用了，下一步', text: '不用加了' },
+    return client.replyMessage(event.replyToken, buildStepMessage(`已選擇「${chosen.combined}」✅n要加運費／出貨方式嗎？`, {
+      quickReplyItems [
+        ...ORDER_EXTRA_PRESETS.map((t) = ({ label t.label, text t.text })),
+        { label '🤝 面交', text '加面交' },
+        { label '➕ 其他', text '其他項目' },
+        { label '✅ 都不用了，下一步', text '不用加了' },
       ],
     }));
   }
 
   if (session.flow === 'orderExtras') {
     const presetMap = {};
-    ORDER_EXTRA_PRESETS.forEach((t) => { presetMap[t.text] = t; });
-    ORDER_EXTRA_OTHER_PRESETS.forEach((t) => { presetMap[t.text] = t; }); // 宅配/宅配免運也是點了直接加,跟賣貨便同一套邏輯
+    ORDER_EXTRA_PRESETS.forEach((t) = { presetMap[t.text] = t; });
+    ORDER_EXTRA_OTHER_PRESETS.forEach((t) = { presetMap[t.text] = t; });  宅配宅配免運也是點了直接加,跟賣貨便同一套邏輯
     const otherTypeMap = {};
-    ORDER_EXTRA_OTHER_TYPES.forEach((t) => { otherTypeMap[t.text] = t; });
+    ORDER_EXTRA_OTHER_TYPES.forEach((t) = { otherTypeMap[t.text] = t; });
 
     const mainMenu = {
-      quickReplyItems: [
-        ...ORDER_EXTRA_PRESETS.map((t) => ({ label: t.label, text: t.text })),
-        { label: '🤝 面交', text: '加面交' },
-        { label: '➕ 其他', text: '其他項目' },
-        { label: '✅ 都不用了，下一步', text: '不用加了' },
+      quickReplyItems [
+        ...ORDER_EXTRA_PRESETS.map((t) = ({ label t.label, text t.text })),
+        { label '🤝 面交', text '加面交' },
+        { label '➕ 其他', text '其他項目' },
+        { label '✅ 都不用了，下一步', text '不用加了' },
       ],
     };
     const otherMenu = {
-      quickReplyItems: [
-        ...ORDER_EXTRA_OTHER_PRESETS.map((t) => ({ label: t.label, text: t.text })),
-        ...ORDER_EXTRA_OTHER_TYPES.map((t) => ({ label: t.label, text: t.text })),
-        { label: '🔧 其他運費代碼', text: '加其他運費' },
-        { label: '↩️ 返回', text: '返回主選單' },
+      quickReplyItems [
+        ...ORDER_EXTRA_OTHER_PRESETS.map((t) = ({ label t.label, text t.text })),
+        ...ORDER_EXTRA_OTHER_TYPES.map((t) = ({ label t.label, text t.text })),
+        { label '🔧 其他運費代碼', text '加其他運費' },
+        { label '↩️ 返回', text '返回主選單' },
       ],
     };
     const meetupMenu = {
-      quickReplyItems: MEETUP_PEOPLE.map((p) => ({ label: p, text: p })),
+      quickReplyItems MEETUP_PEOPLE.map((p) = ({ label p, text p })),
     };
 
-    // 等待輸入折扣/韓國境內運費/購物金的金額
+     等待輸入折扣韓國境內運費購物金的金額
     if (session.step === 'awaitAmount') {
-      const num = Number(text.replace(/[^\d.-]/g, ''));
-      if (!text || isNaN(num) || num === 0) {
+      const num = Number(text.replace([^d.-]g, ''));
+      if (!text  isNaN(num)  num === 0) {
         return client.replyMessage(event.replyToken, buildStepMessage('請輸入金額數字就好（不用打正負號），例如：100'));
       }
       const identifier = session.data.pendingExtraIdentifier;
-      session.data.items = session.data.items || [];
-      session.data.items.push({ identifier, quantity: -Math.abs(num), color: null, size: null, style: null });
+      session.data.items = session.data.items  [];
+      session.data.items.push({ identifier, quantity -Math.abs(num), color null, size null, style null });
       delete session.step;
       delete session.data.pendingExtraIdentifier;
-      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${identifier}」-${Math.abs(num)}✅\n還要加運費／出貨方式嗎？`, mainMenu));
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${identifier}」-${Math.abs(num)}✅n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
-    // 等待輸入自訂運費代碼
+     等待輸入自訂運費代碼
     if (session.step === 'awaitOtherFee') {
       const item = parseOrderItemLine(text);
       if (!item) {
         return client.replyMessage(event.replyToken, buildStepMessage('格式不對，請照「代碼／數量」輸入，例如：賣貨便_免運／1'));
       }
-      session.data.items = session.data.items || [];
+      session.data.items = session.data.items  [];
       session.data.items.push(item);
       delete session.step;
-      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${item.identifier}」✅\n還要加運費／出貨方式嗎？`, mainMenu));
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${item.identifier}」✅n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
-    // 等待選面交的人:直接把人名當識別碼加入,運費代碼表裡本來就有「小芳」「新竹好市多」「竹北享平方」「宛柔」這幾個代碼(金額0元)
+     等待選面交的人直接把人名當識別碼加入,運費代碼表裡本來就有「小芳」「新竹好市多」「竹北享平方」「宛柔」這幾個代碼(金額0元)
     if (session.step === 'awaitMeetupPerson') {
       if (!MEETUP_PEOPLE.includes(text)) {
         return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選人', meetupMenu));
       }
-      session.data.items = session.data.items || [];
-      session.data.items.push({ identifier: text, quantity: 1, color: null, size: null, style: null });
+      session.data.items = session.data.items  [];
+      session.data.items.push({ identifier text, quantity 1, color null, size null, style null });
       delete session.step;
-      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「面交（${text}）」✅\n還要加運費／出貨方式嗎？`, mainMenu));
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「面交（${text}）」✅n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
     if (text === '不用加了') {
@@ -1243,10 +1243,10 @@ async function handleEventInner(event) {
     }
 
     if (presetMap[text]) {
-      // 賣貨便免運/預留款:直接加,不用問金額,運費代碼表裡已經有對應金額
-      session.data.items = session.data.items || [];
-      session.data.items.push({ identifier: presetMap[text].identifier, quantity: 1, color: null, size: null, style: null });
-      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${presetMap[text].identifier}」✅\n還要加運費／出貨方式嗎？`, mainMenu));
+       賣貨便免運預留款直接加,不用問金額,運費代碼表裡已經有對應金額
+      session.data.items = session.data.items  [];
+      session.data.items.push({ identifier presetMap[text].identifier, quantity 1, color null, size null, style null });
+      return client.replyMessage(event.replyToken, buildStepMessage(`已加入「${presetMap[text].identifier}」✅n還要加運費／出貨方式嗎？`, mainMenu));
     }
 
     if (otherTypeMap[text]) {
@@ -1260,50 +1260,50 @@ async function handleEventInner(event) {
 
   if (session.flow === 'batchPhotoSelect') {
     const batchFlowMap = {
-      '批次-韓國': 'koreaKrw',
-      '批次-韓免線上': 'dutyFreeOnline',
-      '批次-韓免實體': 'dutyFreePhysical',
-      '批次-美國': 'usa',
-      '批次-同行台幣': 'peerTwd',
-      '批次-同行韓幣': 'peerKrw',
-      '批次-同行日幣': 'peerJpy',
+      '批次-韓國' 'koreaKrw',
+      '批次-韓免線上' 'dutyFreeOnline',
+      '批次-韓免實體' 'dutyFreePhysical',
+      '批次-美國' 'usa',
+      '批次-同行台幣' 'peerTwd',
+      '批次-同行韓幣' 'peerKrw',
+      '批次-同行日幣' 'peerJpy',
     };
     if (batchFlowMap[text]) {
-      sessions.set(userId, { flow: 'batchPhoto', data: { targetFlow: batchFlowMap[text], imageSlots: [], pending: 0 } });
+      sessions.set(userId, { flow 'batchPhoto', data { targetFlow batchFlowMap[text], imageSlots [], pending 0 } });
       return client.replyMessage(event.replyToken, buildStepMessage(
-        `已選擇「${text.replace('批次-', '')}」批次貼圖模式📷\n請開始連續傳送商品照片，會先幫你暫存起來，不會馬上寫進表格，傳完後輸入「完成」才會一次寫入（比較快，也不會互相卡住）。輸入「取消」可以放棄這次。`
+        `已選擇「${text.replace('批次-', '')}」批次貼圖模式📷n請開始連續傳送商品照片，會先幫你暫存起來，不會馬上寫進表格，傳完後輸入「完成」才會一次寫入（比較快，也不會互相卡住）。輸入「取消」可以放棄這次。`
       ));
     }
     return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單', {
-      quickReplyItems: [
-        { label: '🇰🇷 韓國代購', text: '批次-韓國' },
-        { label: '🇰🇷 韓免線上', text: '批次-韓免線上' },
-        { label: '🇰🇷 韓免實體', text: '批次-韓免實體' },
-        { label: '🇺🇸 美國代購', text: '批次-美國' },
-        { label: '🤝 同行台幣', text: '批次-同行台幣' },
-        { label: '🤝 同行韓幣', text: '批次-同行韓幣' },
-        { label: '🤝 同行日幣', text: '批次-同行日幣' },
+      quickReplyItems [
+        { label '🇰🇷 韓國代購', text '批次-韓國' },
+        { label '🇰🇷 韓免線上', text '批次-韓免線上' },
+        { label '🇰🇷 韓免實體', text '批次-韓免實體' },
+        { label '🇺🇸 美國代購', text '批次-美國' },
+        { label '🤝 同行台幣', text '批次-同行台幣' },
+        { label '🤝 同行韓幣', text '批次-同行韓幣' },
+        { label '🤝 同行日幣', text '批次-同行日幣' },
       ],
     }));
   }
 
-  // 支援「批次貼圖後直接填共用資料」的類型(顏色以外其他欄位通常都一樣,免稅店先不支援,
-// 因為免稅店牽涉5間店比價、折扣，後處理邏輯比較複雜，之後有需要再另外做)
+   支援「批次貼圖後直接填共用資料」的類型(顏色以外其他欄位通常都一樣,免稅店先不支援,
+ 因為免稅店牽涉5間店比價、折扣，後處理邏輯比較複雜，之後有需要再另外做)
 const BATCH_SHARED_FLOW_CONFIG = {
-  koreaKrw: { fields: KOREA_KRW_FIELDS, rateType: 'krw', needsShippingFee: true },
-  usa: { fields: USA_FIELDS, rateType: 'usd', needsShippingFee: false },
-  peerTwd: { fields: PEER_TWD_FIELDS, rateType: null, needsShippingFee: false },
-  peerKrw: { fields: PEER_KRW_FIELDS, rateType: null, needsShippingFee: false },
-  peerJpy: { fields: PEER_JPY_FIELDS, rateType: null, needsShippingFee: false },
+  koreaKrw { fields KOREA_KRW_FIELDS, rateType 'krw', needsShippingFee true },
+  usa { fields USA_FIELDS, rateType 'usd', needsShippingFee false },
+  peerTwd { fields PEER_TWD_FIELDS, rateType null, needsShippingFee false },
+  peerKrw { fields PEER_KRW_FIELDS, rateType null, needsShippingFee false },
+  peerJpy { fields PEER_JPY_FIELDS, rateType null, needsShippingFee false },
 };
 
 if (session.flow === 'batchPhoto') {
     if (text === '完成') {
-      const pending = session.data.pending || 0;
-      if (pending > 0) {
+      const pending = session.data.pending  0;
+      if (pending  0) {
         return client.replyMessage(event.replyToken, buildStepMessage(`還有 ${pending} 張照片接收中，請稍等幾秒後再輸入一次「完成」。`));
       }
-      const images = session.data.imageSlots.filter((v) => v !== null); // 依原始傳送順序排好,過濾掉下載失敗的空位
+      const images = session.data.imageSlots.filter((v) = v !== null);  依原始傳送順序排好,過濾掉下載失敗的空位
       if (images.length === 0) {
         sessions.delete(userId);
         return client.replyMessage(event.replyToken, buildStepMessage('沒有收到任何照片，批次貼圖已結束。'));
@@ -1313,22 +1313,22 @@ if (session.flow === 'batchPhoto') {
       const sharedConfig = BATCH_SHARED_FLOW_CONFIG[targetFlow];
 
       if (!sharedConfig) {
-        // 免稅店(或其他不支援的類型):維持舊行為,只建空白列帶圖片,其他資料要自己回表格補
+         免稅店(或其他不支援的類型)維持舊行為,只建空白列帶圖片,其他資料要自己回表格補
         sessions.delete(userId);
         try {
           const result = await submitBatchAddImages(targetFlow, images);
           const ids = result.productIds;
-          const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
+          const idRangeText = ids.length  1  `${ids[0]} ～ ${ids[ids.length - 1]}`  ids[0];
           return client.replyMessage(event.replyToken, buildStepMessage(
-            `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
+            `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品n商品編號：${idRangeText}n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
           ));
         } catch (err) {
-          return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}\n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
+          return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
         }
       }
 
-      // 支援的類型:不馬上寫入,先收「共用資料」(品牌/名稱/價格等),等收完顏色清單才一次送出
-      const sharedFields = sharedConfig.fields.filter((f) => f.key !== 'color'); // 顏色另外收,不放進共用範本
+       支援的類型不馬上寫入,先收「共用資料」(品牌名稱價格等),等收完顏色清單才一次送出
+      const sharedFields = sharedConfig.fields.filter((f) = f.key !== 'color');  顏色另外收,不放進共用範本
       const dynamicDefaults = {};
       try {
         if (sharedConfig.rateType === 'krw') {
@@ -1342,23 +1342,23 @@ if (session.flow === 'batchPhoto') {
           dynamicDefaults.koreaShippingFee = await fetchLastKoreaShippingFee();
         }
       } catch (err) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 查匯率失敗：${err.message}\n請重新輸入「完成」再試一次。`));
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 查匯率失敗：${err.message}n請重新輸入「完成」再試一次。`));
       }
 
-      const fieldsWithDefaults = sharedFields.map((f) => {
-        if (f.key === 'fxRate' && dynamicDefaults.fxRate !== undefined) return { ...f, default: dynamicDefaults.fxRate };
-        if (f.key === 'koreaShippingFee' && dynamicDefaults.koreaShippingFee !== undefined) return { ...f, default: dynamicDefaults.koreaShippingFee };
+      const fieldsWithDefaults = sharedFields.map((f) = {
+        if (f.key === 'fxRate' && dynamicDefaults.fxRate !== undefined) return { ...f, default dynamicDefaults.fxRate };
+        if (f.key === 'koreaShippingFee' && dynamicDefaults.koreaShippingFee !== undefined) return { ...f, default dynamicDefaults.koreaShippingFee };
         return f;
       });
 
       sessions.set(userId, {
-        flow: 'batchSharedTemplate',
-        data: { targetFlow, images, fields: fieldsWithDefaults },
+        flow 'batchSharedTemplate',
+        data { targetFlow, images, fields fieldsWithDefaults },
       });
 
-      const rateInfo = dynamicDefaults.fxRate !== undefined ? `今日匯率已自動帶入（${dynamicDefaults.fxRate}），如需使用別的匯率請直接修改整段內容\n\n` : '';
+      const rateInfo = dynamicDefaults.fxRate !== undefined  `今日匯率已自動帶入（${dynamicDefaults.fxRate}），如需使用別的匯率請直接修改整段內容nn`  '';
       return client.replyMessage(event.replyToken, buildStepMessage(
-        `📷 已收到 ${images.length} 張照片\n這批商品「顏色以外」的資料都一樣的話，填一次就好，等一下再另外列每張照片對應的顏色。輸入「跳過」可以不填，只建空白列帶圖片，之後自己回表格補資料。\n\n${rateInfo}請複製整段填寫、回傳（顏色不用填在這裡）\n\n${buildTemplateText('', fieldsWithDefaults).replace(/^\n+/, '')}`
+        `📷 已收到 ${images.length} 張照片n這批商品「顏色以外」的資料都一樣的話，填一次就好，等一下再另外列每張照片對應的顏色。輸入「跳過」可以不填，只建空白列帶圖片，之後自己回表格補資料。nn${rateInfo}請複製整段填寫、回傳（顏色不用填在這裡）nn${buildTemplateText('', fieldsWithDefaults).replace(^n+, '')}`
       ));
     }
 
@@ -1366,18 +1366,18 @@ if (session.flow === 'batchPhoto') {
       return client.replyMessage(event.replyToken, buildStepMessage('請傳送商品照片📷，全部傳完後輸入「完成」統一寫入表格。'));
     }
 
-    session.data.imageSlots = session.data.imageSlots || [];
-    const slotIndex = session.data.imageSlots.length; // 在任何await之前,先卡住這張照片在陣列裡的固定位置,不管之後下載快慢,順序都不會亂
-    session.data.imageSlots.push(null); // 先佔位,下載完再回填,下載失敗就維持null(最後會被濾掉)
-    session.data.pending = (session.data.pending || 0) + 1; // 在任何await之前先計數,確保「完成」進來時看得到「還有幾張還在接收」
+    session.data.imageSlots = session.data.imageSlots  [];
+    const slotIndex = session.data.imageSlots.length;  在任何await之前,先卡住這張照片在陣列裡的固定位置,不管之後下載快慢,順序都不會亂
+    session.data.imageSlots.push(null);  先佔位,下載完再回填,下載失敗就維持null(最後會被濾掉)
+    session.data.pending = (session.data.pending  0) + 1;  在任何await之前先計數,確保「完成」進來時看得到「還有幾張還在接收」
     try {
       const base64 = await getLineImageBase64(event.message.id);
-      session.data.imageSlots[slotIndex] = base64; // 回填到原本卡住的位置,不是push到陣列尾端
+      session.data.imageSlots[slotIndex] = base64;  回填到原本卡住的位置,不是push到陣列尾端
       session.data.pending -= 1;
       return client.replyMessage(event.replyToken, buildStepMessage(`📥 已收到第${slotIndex + 1}張（先暫存，尚未寫入表格）`));
     } catch (err) {
       session.data.pending -= 1;
-      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張接收失敗：${err.message}\n可以重新傳一次這張，不影響前面已收到的。`));
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 這張接收失敗：${err.message}n可以重新傳一次這張，不影響前面已收到的。`));
     }
   }
 
@@ -1393,12 +1393,12 @@ if (session.flow === 'batchPhoto') {
       try {
         const result = await submitBatchAddImages(targetFlow, images);
         const ids = result.productIds;
-        const idRangeText = ids.length > 1 ? `${ids[0]} ～ ${ids[ids.length - 1]}` : ids[0];
+        const idRangeText = ids.length  1  `${ids[0]} ～ ${ids[ids.length - 1]}`  ids[0];
         return client.replyMessage(event.replyToken, buildStepMessage(
-          `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品\n商品編號：${idRangeText}\n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
+          `✅ 批次貼圖完成，共新增 ${ids.length} 筆商品n商品編號：${idRangeText}n記得回表格幫每一筆補上品牌／商品名稱／價格等資料喔！`
         ));
       } catch (err) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}\n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 寫入表格失敗：${err.message}n剛剛收集的 ${images.length} 張照片沒有存進表格，麻煩重新用「批次貼圖」再傳一次。`));
       }
     }
     let sharedData;
@@ -1410,8 +1410,8 @@ if (session.flow === 'batchPhoto') {
     if (session.data.targetFlow === 'koreaKrw' && !sharedData.location) {
       sharedData.location = sharedData.brand;
     }
-    if ((session.data.targetFlow === 'peerTwd' || session.data.targetFlow === 'peerJpy') &&
-      (sharedData.weight === null || sharedData.weight === undefined)) {
+    if ((session.data.targetFlow === 'peerTwd'  session.data.targetFlow === 'peerJpy') &&
+      (sharedData.weight === null  sharedData.weight === undefined)) {
       sharedData.shippingRate = 0;
     }
 
@@ -1419,7 +1419,7 @@ if (session.flow === 'batchPhoto') {
     session.data.sharedData = sharedData;
     const n = session.data.images.length;
     return client.replyMessage(event.replyToken, buildStepMessage(
-      `資料收到了✅\n這批共 ${n} 張照片，請依照片傳送的順序，用「/」列出每張對應的顏色（第1張/第2張/...）\n例如：黑/白/灰\n輸入「取消」可以放棄這次。`
+      `資料收到了✅n這批共 ${n} 張照片，請依照片傳送的順序，用「」列出每張對應的顏色（第1張第2張...）n例如：黑白灰n輸入「取消」可以放棄這次。`
     ));
   }
 
@@ -1428,25 +1428,25 @@ if (session.flow === 'batchPhoto') {
       sessions.delete(userId);
       return client.replyMessage(event.replyToken, buildStepMessage('已取消，剛剛收到的照片沒有寫進表格。'));
     }
-    const colors = text.split(/[\/／]/).map((s) => s.trim()).filter((s) => s.length > 0);
+    const colors = text.split([／]).map((s) = s.trim()).filter((s) = s.length  0);
     const images = session.data.images;
     if (colors.length !== images.length) {
       return client.replyMessage(event.replyToken, buildStepMessage(
-        `⚠️ 顏色數量（${colors.length}個）跟照片數量（${images.length}張）對不上，請重新用「/」列出全部 ${images.length} 個顏色（依照片順序）。`
+        `⚠️ 顏色數量（${colors.length}個）跟照片數量（${images.length}張）對不上，請重新用「」列出全部 ${images.length} 個顏色（依照片順序）。`
       ));
     }
 
     const targetFlow = session.data.targetFlow;
     const sharedData = session.data.sharedData;
-    sessions.delete(userId); // 先結束session,避免等待寫入的這段時間使用者又傳訊息卡到舊session
+    sessions.delete(userId);  先結束session,避免等待寫入的這段時間使用者又傳訊息卡到舊session
 
     await client.replyMessage(event.replyToken, buildStepMessage(`收到，開始寫入 ${images.length} 筆商品，完成後會用另一則訊息通知商品編號，請稍等。`));
 
-    const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
+    const pushTargetId = getPushTargetId(event);  群組裡發話要送回群組,不是送到發話者個人
     const successIds = [];
     const failed = [];
-    for (let i = 0; i < images.length; i++) {
-      const itemData = { ...sharedData, color: colors[i], imageBase64: images[i] };
+    for (let i = 0; i  images.length; i++) {
+      const itemData = { ...sharedData, color colors[i], imageBase64 images[i] };
       try {
         const result = await submitToAppsScript(targetFlow, itemData, false);
         successIds.push(result.productId);
@@ -1456,21 +1456,21 @@ if (session.flow === 'batchPhoto') {
     }
 
     const lines = [];
-    if (successIds.length > 0) {
-      const idRangeText = successIds.length > 1 ? `${successIds[0]} ～ ${successIds[successIds.length - 1]}` : successIds[0];
-      lines.push(`✅ 已成立 ${successIds.length} 筆\n商品編號：${idRangeText}`);
+    if (successIds.length  0) {
+      const idRangeText = successIds.length  1  `${successIds[0]} ～ ${successIds[successIds.length - 1]}`  successIds[0];
+      lines.push(`✅ 已成立 ${successIds.length} 筆n商品編號：${idRangeText}`);
     }
-    if (failed.length > 0) {
-      lines.push(`⚠️ 以下 ${failed.length} 筆失敗，請手動補：\n${failed.join('\n')}`);
+    if (failed.length  0) {
+      lines.push(`⚠️ 以下 ${failed.length} 筆失敗，請手動補：n${failed.join('n')}`);
     }
-    return client.pushMessage(pushTargetId, buildStepMessage(lines.join('\n\n')));
+    return client.pushMessage(pushTargetId, buildStepMessage(lines.join('nn')));
   }
 
   if (session.flow === 'override') {
     if (event.message.type !== 'text') {
       return client.replyMessage(event.replyToken, buildStepMessage('請用文字輸入'));
     }
-    const label = session.field === 'quote' ? '報價' : '利潤';
+    const label = session.field === 'quote'  '報價'  '利潤';
 
     if (!session.data.productId) {
       session.data.productId = text.trim();
@@ -1481,7 +1481,7 @@ if (session.flow === 'batchPhoto') {
     try {
       value = numberParser(text);
     } catch (err) {
-      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n請輸入數字`));
+      return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}n請輸入數字`));
     }
 
     const productId = session.data.productId;
@@ -1491,16 +1491,16 @@ if (session.flow === 'batchPhoto') {
       const lines = ['✅ 已更新報價', `商品編號：${productId}`];
       if (result.oldTotal !== undefined && result.oldTotal !== '') lines.push(`原報價：${result.oldTotal}`);
       if (result.newTotal !== undefined) lines.push(`新報價：${result.newTotal}`);
-      const messages = [buildStepMessage(lines.join('\n'))];
-      // 附上改報價/改利潤按鈕,商品編號已經帶好,要再調整同一筆不用重新輸入商品編號
+      const messages = [buildStepMessage(lines.join('n'))];
+       附上改報價改利潤按鈕,商品編號已經帶好,要再調整同一筆不用重新輸入商品編號
       const editAgainStep = {
-        quickReplyItems: [
-          { label: '✏️ 改報價', text: `改報價／${productId}` },
-          { label: '✏️ 改利潤', text: `改利潤／${productId}` },
+        quickReplyItems [
+          { label '✏️ 改報價', text `改報價／${productId}` },
+          { label '✏️ 改利潤', text `改利潤／${productId}` },
         ],
       };
       if (result.brand && result.name && result.newTotal !== undefined) {
-        messages.push(buildStepMessage(buildShortSummary(result.flag || '', result.brand, result.name, result.newTotal, result.color, result.size, result.style), editAgainStep));
+        messages.push(buildStepMessage(buildShortSummary(result.flag  '', result.brand, result.name, result.newTotal, result.color, result.size, result.style), editAgainStep));
       } else {
         messages.push(buildStepMessage('要再調整這筆嗎？', editAgainStep));
       }
@@ -1511,7 +1511,7 @@ if (session.flow === 'batchPhoto') {
   }
 
   if (session.flow === 'peerSelect') {
-    const flowMap = { 台幣報價: 'peerTwd', 韓幣報價: 'peerKrw', 日幣報價: 'peerJpy' };
+    const flowMap = { 台幣報價 'peerTwd', 韓幣報價 'peerKrw', 日幣報價 'peerJpy' };
     if (flowMap[text]) {
       session.flow = flowMap[text];
       session.stepIndex = 0;
@@ -1520,10 +1520,10 @@ if (session.flow === 'batchPhoto') {
     return client.replyMessage(
       event.replyToken,
       buildStepMessage('請點選下方選單：台幣報價／韓幣報價／日幣報價', {
-        quickReplyItems: [
-          { label: '🇹🇼 台幣報價', text: '台幣報價' },
-          { label: '🇰🇷 韓幣報價', text: '韓幣報價' },
-          { label: '🇯🇵 日幣報價', text: '日幣報價' },
+        quickReplyItems [
+          { label '🇹🇼 台幣報價', text '台幣報價' },
+          { label '🇰🇷 韓幣報價', text '韓幣報價' },
+          { label '🇯🇵 日幣報價', text '日幣報價' },
         ],
       })
     );
@@ -1539,9 +1539,9 @@ if (session.flow === 'batchPhoto') {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
     }
     if (resolution.candidates) {
-      sessions.set(userId, { flow: 'customerDisambiguate', data: { nextFlow: 'customerSummary', candidates: resolution.candidates } });
+      sessions.set(userId, { flow 'customerDisambiguate', data { nextFlow 'customerSummary', candidates resolution.candidates } });
       return client.replyMessage(event.replyToken, buildStepMessage('有多位同名客人，請選擇是哪一位：', {
-        quickReplyItems: resolution.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+        quickReplyItems resolution.candidates.map((c) = ({ label c.combined, text c.combined })),
       }));
     }
     sessions.delete(userId);
@@ -1552,15 +1552,15 @@ if (session.flow === 'batchPhoto') {
     } catch (err) {
       return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
     }
-    const url = `${APPS_SCRIPT_URL}?token=${token}`;
-    return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️\n${url}`));
+    const url = `${APPS_SCRIPT_URL}token=${token}`;
+    return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️n${url}`));
   }
 
   if (session.flow === 'customerDisambiguate') {
-    const chosen = session.data.candidates.find((c) => c.combined === text.trim());
+    const chosen = session.data.candidates.find((c) = c.combined === text.trim());
     if (!chosen) {
       return client.replyMessage(event.replyToken, buildStepMessage('請點選下方按鈕選擇客人', {
-        quickReplyItems: session.data.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+        quickReplyItems session.data.candidates.map((c) = ({ label c.combined, text c.combined })),
       }));
     }
     const customerName = chosen.combined;
@@ -1574,8 +1574,8 @@ if (session.flow === 'batchPhoto') {
       } catch (err) {
         return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
       }
-      const url = `${APPS_SCRIPT_URL}?token=${token}`;
-      return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️\n${url}`));
+      const url = `${APPS_SCRIPT_URL}token=${token}`;
+      return client.replyMessage(event.replyToken, buildStepMessage(`「${customerName}」的訂購明細⬇️n${url}`));
     }
 
     if (nextFlow === 'collectPayment') {
@@ -1584,7 +1584,7 @@ if (session.flow === 'batchPhoto') {
   }
 
   if (session.flow === 'collectPayment') {
-    const PAYMENT_METHODS = ['PC', 'LINE', '轉帳', '賣貨便/信用卡', '現金/小芳', '現金/宛柔'];
+    const PAYMENT_METHODS = ['PC', 'LINE', '轉帳', '賣貨便信用卡', '現金小芳', '現金宛柔'];
 
     if (session.step === 'awaitName') {
       const rawInput = text.trim();
@@ -1596,9 +1596,9 @@ if (session.flow === 'batchPhoto') {
         return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
       }
       if (resolution.candidates) {
-        sessions.set(userId, { flow: 'customerDisambiguate', data: { nextFlow: 'collectPayment', candidates: resolution.candidates } });
+        sessions.set(userId, { flow 'customerDisambiguate', data { nextFlow 'collectPayment', candidates resolution.candidates } });
         return client.replyMessage(event.replyToken, buildStepMessage('有多位同名客人，請選擇是哪一位：', {
-          quickReplyItems: resolution.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+          quickReplyItems resolution.candidates.map((c) = ({ label c.combined, text c.combined })),
         }));
       }
       return client.replyMessage(event.replyToken, await startCollectPaymentForCustomer(resolution.resolved, userId));
@@ -1606,10 +1606,10 @@ if (session.flow === 'batchPhoto') {
 
     if (session.step === 'awaitScope') {
       if (text === '全部付款') {
-        session.data.selectedOrderIds = session.data.unpaidOrders.map((o) => o.orderId);
+        session.data.selectedOrderIds = session.data.unpaidOrders.map((o) = o.orderId);
         session.step = 'awaitPaymentMethod';
         return client.replyMessage(event.replyToken, buildStepMessage('請選擇付款方式', {
-          quickReplyItems: PAYMENT_METHODS.map((m) => ({ label: m, text: m })),
+          quickReplyItems PAYMENT_METHODS.map((m) = ({ label m, text m })),
         }));
       }
       if (text === '部分付款') {
@@ -1617,31 +1617,31 @@ if (session.flow === 'batchPhoto') {
         return client.replyMessage(event.replyToken, buildStepMessage('請輸入要付款的訂單編號，多筆請用逗號分隔（例如：ORD0012，ORD0013）'));
       }
       return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單：全部付款／部分付款', {
-        quickReplyItems: [
-          { label: '✅ 全部付款', text: '全部付款' },
-          { label: '☑️ 部分付款', text: '部分付款' },
+        quickReplyItems [
+          { label '✅ 全部付款', text '全部付款' },
+          { label '☑️ 部分付款', text '部分付款' },
         ],
       }));
     }
 
     if (session.step === 'awaitOrderIds') {
-      const ids = text.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
-      const validIds = session.data.unpaidOrders.map((o) => o.orderId);
-      const invalid = ids.filter((id) => !validIds.includes(id));
-      if (ids.length === 0 || invalid.length > 0) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 訂單編號有誤或不在未付款清單裡：${invalid.join('、') || '（未輸入）'}\n請重新輸入`));
+      const ids = text.split([,，]).map((s) = s.trim()).filter(Boolean);
+      const validIds = session.data.unpaidOrders.map((o) = o.orderId);
+      const invalid = ids.filter((id) = !validIds.includes(id));
+      if (ids.length === 0  invalid.length  0) {
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 訂單編號有誤或不在未付款清單裡：${invalid.join('、')  '（未輸入）'}n請重新輸入`));
       }
       session.data.selectedOrderIds = ids;
       session.step = 'awaitPaymentMethod';
       return client.replyMessage(event.replyToken, buildStepMessage('請選擇付款方式', {
-        quickReplyItems: PAYMENT_METHODS.map((m) => ({ label: m, text: m })),
+        quickReplyItems PAYMENT_METHODS.map((m) = ({ label m, text m })),
       }));
     }
 
     if (session.step === 'awaitPaymentMethod') {
       if (!PAYMENT_METHODS.includes(text)) {
         return client.replyMessage(event.replyToken, buildStepMessage('請點選下方選單的付款方式', {
-          quickReplyItems: PAYMENT_METHODS.map((m) => ({ label: m, text: m })),
+          quickReplyItems PAYMENT_METHODS.map((m) = ({ label m, text m })),
         }));
       }
       let result;
@@ -1652,15 +1652,15 @@ if (session.flow === 'batchPhoto') {
         return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}`));
       }
       const paidTotal = session.data.unpaidOrders
-        .filter((o) => session.data.selectedOrderIds.includes(o.orderId))
-        .reduce((sum, o) => sum + o.total, 0);
-      const allTotal = session.data.unpaidOrders.reduce((sum, o) => sum + o.total, 0);
+        .filter((o) = session.data.selectedOrderIds.includes(o.orderId))
+        .reduce((sum, o) = sum + o.total, 0);
+      const allTotal = session.data.unpaidOrders.reduce((sum, o) = sum + o.total, 0);
       const remaining = allTotal - paidTotal;
 
       const lines = [`✅ 已標記付款（${text}）`, `客人：${session.data.customerName}`, `訂單編號：${session.data.selectedOrderIds.join('、')}`, `💰 本次付款：${paidTotal}`];
-      if (remaining > 0) lines.push(`💰 尚未付款：${remaining}`);
+      if (remaining  0) lines.push(`💰 尚未付款：${remaining}`);
       sessions.delete(userId);
-      return client.replyMessage(event.replyToken, buildStepMessage(lines.join('\n')));
+      return client.replyMessage(event.replyToken, buildStepMessage(lines.join('n')));
     }
   }
 
@@ -1682,7 +1682,7 @@ if (session.flow === 'batchPhoto') {
       try {
         session.data.imageUrl = await uploadImageToDrive(base64);
       } catch (uploadErr) {
-        session.data.imageBase64 = base64; // 立即上傳失敗就退回舊做法,最後一步再讓 Apps Script 處理
+        session.data.imageBase64 = base64;  立即上傳失敗就退回舊做法,最後一步再讓 Apps Script 處理
       }
     } else if (currentStep.type === 'orderItems') {
       const parsed = parseOrderTemplate(text);
@@ -1690,44 +1690,44 @@ if (session.flow === 'batchPhoto') {
       try {
         resolution = await resolveCustomerName(parsed.customerName);
       } catch (err) {
-        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n請確認客人姓名/會員編號正確後，重新貼上整段內容。`));
+        return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}n請確認客人姓名會員編號正確後，重新貼上整段內容。`));
       }
       if (resolution.candidates) {
         Object.assign(session.data, parsed);
         session.flow = 'orderCustomerDisambiguate';
         session.data.pendingCandidates = resolution.candidates;
         return client.replyMessage(event.replyToken, buildStepMessage('有多位同名客人，請選擇是哪一位：', {
-          quickReplyItems: resolution.candidates.map((c) => ({ label: c.combined, text: c.combined })),
+          quickReplyItems resolution.candidates.map((c) = ({ label c.combined, text c.combined })),
         }));
       }
       parsed.customerName = resolution.resolved;
       Object.assign(session.data, parsed);
-      session.flow = 'orderExtras'; // 商品清單收好之後,先進小流程用按鈕加運費/折扣/購物金,不直接走下一步(已收款)
-      return client.replyMessage(event.replyToken, buildStepMessage('商品清單收到了✅\n要加運費／出貨方式嗎？', {
-        quickReplyItems: [
-          ...ORDER_EXTRA_PRESETS.map((t) => ({ label: t.label, text: t.text })),
-          { label: '🤝 面交', text: '加面交' },
-          { label: '➕ 其他', text: '其他項目' },
-          { label: '✅ 都不用了，下一步', text: '不用加了' },
+      session.flow = 'orderExtras';  商品清單收好之後,先進小流程用按鈕加運費折扣購物金,不直接走下一步(已收款)
+      return client.replyMessage(event.replyToken, buildStepMessage('商品清單收到了✅n要加運費／出貨方式嗎？', {
+        quickReplyItems [
+          ...ORDER_EXTRA_PRESETS.map((t) = ({ label t.label, text t.text })),
+          { label '🤝 面交', text '加面交' },
+          { label '➕ 其他', text '其他項目' },
+          { label '✅ 都不用了，下一步', text '不用加了' },
         ],
       }));
     } else if (currentStep.type === 'template') {
-      const dynDefaults = currentStep.dynamicDefaultsFn ? currentStep.dynamicDefaultsFn(session) : {};
+      const dynDefaults = currentStep.dynamicDefaultsFn  currentStep.dynamicDefaultsFn(session)  {};
       const parsed = parseTemplate(text, currentStep.fields, dynDefaults);
       Object.assign(session.data, parsed);
-      // 同行報價-台幣:重量沒填就視為已含運費,每公斤運費強制歸零
-      if ((session.flow === 'peerTwd' || session.flow === 'peerJpy') && (session.data.weight === null || session.data.weight === undefined)) {
+       同行報價-台幣重量沒填就視為已含運費,每公斤運費強制歸零
+      if ((session.flow === 'peerTwd'  session.flow === 'peerJpy') && (session.data.weight === null  session.data.weight === undefined)) {
         session.data.shippingRate = 0;
       }
       if (session.flow === 'koreaKrw' && !session.data.location) {
         session.data.location = session.data.brand;
       }
-      if (session.flow === 'dutyFreeOnline' || session.flow === 'dutyFreePhysical') {
+      if (session.flow === 'dutyFreeOnline'  session.flow === 'dutyFreePhysical') {
         let lowestPrice = null;
         let lowestStore = null;
-        Object.keys(DUTY_FREE_STORES).forEach((key) => {
+        Object.keys(DUTY_FREE_STORES).forEach((key) = {
           const val = session.data[key];
-          if (val !== null && val !== undefined && (lowestPrice === null || val < lowestPrice)) {
+          if (val !== null && val !== undefined && (lowestPrice === null  val  lowestPrice)) {
             lowestPrice = val;
             lowestStore = DUTY_FREE_STORES[key];
           }
@@ -1759,59 +1759,59 @@ if (session.flow === 'batchPhoto') {
       } else {
         promptMessage = buildStepMessage(stepPrompt(nextStep, session), nextStep);
       }
-      const messages = [...extraMessages.map((t) => buildStepMessage(t)), promptMessage];
+      const messages = [...extraMessages.map((t) = buildStepMessage(t)), promptMessage];
       return client.replyMessage(event.replyToken, messages);
     }
 
-    // 全部欄位收集完成,先用「試算模式」快速算出報價(不寫入表格),立刻回覆給使用者
+     全部欄位收集完成,先用「試算模式」快速算出報價(不寫入表格),立刻回覆給使用者
     const dryRunResult = await submitToAppsScript(session.flow, session.data, true);
     const finalData = session.data;
     const finalFlow = session.flow;
     sessions.delete(userId);
     const quoteMessage = QUOTE_FLEX_STYLE[finalFlow]
-      ? buildQuoteFlex(finalFlow, finalData, dryRunResult)
-      : buildStepMessage(buildQuoteMessage(finalFlow, finalData, dryRunResult));
-    const messages = [...extraMessages.map((t) => buildStepMessage(t)), quoteMessage];
+       buildQuoteFlex(finalFlow, finalData, dryRunResult)
+       buildStepMessage(buildQuoteMessage(finalFlow, finalData, dryRunResult));
+    const messages = [...extraMessages.map((t) = buildStepMessage(t)), quoteMessage];
     if (finalFlow !== 'order') {
       const flag = flagForFlow(finalFlow, finalData);
       messages.push(buildStepMessage(buildShortSummary(flag, finalData.brand, finalData.name, dryRunResult.total, finalData.color, finalData.size, finalData.style)));
     }
     await client.replyMessage(event.replyToken, messages);
 
-    // 背景真正寫入試算表,完成後用推播訊息補上商品編號(不 await,不擋住剛剛的回覆)
-    // 沒有收到這則補充訊息,就代表這筆沒有真的成立,需要重新送出一次。
-    const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
+     背景真正寫入試算表,完成後用推播訊息補上商品編號(不 await,不擋住剛剛的回覆)
+     沒有收到這則補充訊息,就代表這筆沒有真的成立,需要重新送出一次。
+    const pushTargetId = getPushTargetId(event);  群組裡發話要送回群組,不是送到發話者個人
     submitToAppsScript(finalFlow, finalData, false)
-      .then((result) => {
+      .then((result) = {
         if (finalFlow === 'order') {
-          const idText = result.orders.map((o) => o.orderId).join('、');
+          const idText = result.orders.map((o) = o.orderId).join('、');
           return client.pushMessage(pushTargetId, [
-            buildStepMessage('✅ 已成立\n訂單編號⬇️'),
+            buildStepMessage('✅ 已成立n訂單編號⬇️'),
             buildStepMessage(idText),
           ]);
         }
-        // 商品報價:附上改報價/改利潤按鈕,商品編號已經帶好,不用再手動輸入一次
+         商品報價附上改報價改利潤按鈕,商品編號已經帶好,不用再手動輸入一次
         const productId = String(result.productId);
         return client.pushMessage(pushTargetId, [
-          buildStepMessage(`✅ 已成立\n商品編號：${productId}`, {
-            quickReplyItems: [
-              { label: '✏️ 改報價', text: `改報價／${productId}` },
-              { label: '✏️ 改利潤', text: `改利潤／${productId}` },
+          buildStepMessage(`✅ 已成立n商品編號：${productId}`, {
+            quickReplyItems [
+              { label '✏️ 改報價', text `改報價／${productId}` },
+              { label '✏️ 改利潤', text `改利潤／${productId}` },
             ],
           }),
         ]);
       })
-      .catch((err) => {
-        return client.pushMessage(pushTargetId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
+      .catch((err) = {
+        return client.pushMessage(pushTargetId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}n請重新送出一次`));
       });
 
     return;
   } catch (err) {
-    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}\n\n${stepPrompt(currentStep, session)}`, currentStep));
+    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ ${err.message}nn${stepPrompt(currentStep, session)}`, currentStep));
   }
 }
 
-// 新增訂單:加完運費/折扣/購物金之後直接送出,不再另外問已收款/未收款(預設未收款,之後用「收款」流程另外標記)
+ 新增訂單加完運費折扣購物金之後直接送出,不再另外問已收款未收款(預設未收款,之後用「收款」流程另外標記)
 async function finalizeOrder(session, event, userId) {
   if (session.data.received === undefined) session.data.received = false;
 
@@ -1820,46 +1820,46 @@ async function finalizeOrder(session, event, userId) {
     dryRunResult = await submitToAppsScript('order', session.data, true);
   } catch (err) {
     sessions.delete(userId);
-    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 試算失敗：${err.message}\n這筆還沒有寫入表格，請確認商品編號/運費代碼是否正確後，重新用「新增訂單」再送一次。`));
+    return client.replyMessage(event.replyToken, buildStepMessage(`⚠️ 試算失敗：${err.message}n這筆還沒有寫入表格，請確認商品編號運費代碼是否正確後，重新用「新增訂單」再送一次。`));
   }
 
   const finalData = session.data;
   sessions.delete(userId);
   await client.replyMessage(event.replyToken, buildStepMessage(buildQuoteMessage('order', finalData, dryRunResult)));
 
-  const pushTargetId = getPushTargetId(event); // 群組裡發話要送回群組,不是送到發話者個人
+  const pushTargetId = getPushTargetId(event);  群組裡發話要送回群組,不是送到發話者個人
   submitToAppsScript('order', finalData, false)
-    .then((result) => {
+    .then((result) = {
       return client.pushMessage(pushTargetId, [
-        buildStepMessage('✅ 已成立\n訂單編號⬇️'),
-        buildStepMessage(result.orders.map((o) => o.orderId).join('、')),
+        buildStepMessage('✅ 已成立n訂單編號⬇️'),
+        buildStepMessage(result.orders.map((o) = o.orderId).join('、')),
       ]);
     })
-    .catch((err) => {
-      return client.pushMessage(pushTargetId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}\n請重新送出一次`));
+    .catch((err) = {
+      return client.pushMessage(pushTargetId, buildStepMessage(`⚠️ 剛剛那筆寫入試算表失敗：${err.message}n請重新送出一次`));
     });
 }
 
 async function submitToAppsScript(flow, data, dryRun) {
-  return postAppsScript({ recordType: flow, dryRun: !!dryRun, ...data }, '寫入試算表失敗');
+  return postAppsScript({ recordType flow, dryRun !!dryRun, ...data }, '寫入試算表失敗');
 }
 
-// 第一行是會員編號(可以直接純編號,或還是打「客戶編號：xxx」都吃得到),
-// 下面逐行找「標籤：內容」抓出各欄位,並依訊息裡有沒有「7-11門市店號」或「地址」這個標籤,自動判斷取貨方式。
+ 第一行是會員編號(可以直接純編號,或還是打「客戶編號：xxx」都吃得到),
+ 下面逐行找「標籤：內容」抓出各欄位,並依訊息裡有沒有「7-11門市店號」或「地址」這個標籤,自動判斷取貨方式。
 function parseShippingPaste(text) {
-  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  const lines = text.split('n').map((l) = l.trim()).filter((l) = l !== '');
   if (lines.length === 0) return null;
 
   function stripLabel(line, labels) {
-    const colonIdx = line.indexOf('：') !== -1 ? line.indexOf('：') : line.indexOf(':');
+    const colonIdx = line.indexOf('：') !== -1  line.indexOf('：')  line.indexOf('');
     if (colonIdx === -1) return null;
     const label = line.slice(0, colonIdx).trim();
-    if (labels.some((l) => label.startsWith(l))) return line.slice(colonIdx + 1).trim();
+    if (labels.some((l) = label.startsWith(l))) return line.slice(colonIdx + 1).trim();
     return null;
   }
 
   const firstLineAsId = stripLabel(lines[0], ['客戶編號', '會員編號']);
-  const customerId = firstLineAsId !== null ? firstLineAsId : lines[0];
+  const customerId = firstLineAsId !== null  firstLineAsId  lines[0];
   const rest = lines.slice(1);
 
   function findField(labels) {
@@ -1870,11 +1870,11 @@ function parseShippingPaste(text) {
     return '';
   }
   function hasLabel(labels) {
-    return rest.some((line) => {
-      const colonIdx = line.indexOf('：') !== -1 ? line.indexOf('：') : line.indexOf(':');
+    return rest.some((line) = {
+      const colonIdx = line.indexOf('：') !== -1  line.indexOf('：')  line.indexOf('');
       if (colonIdx === -1) return false;
       const label = line.slice(0, colonIdx).trim();
-      return labels.some((l) => label.startsWith(l));
+      return labels.some((l) = label.startsWith(l));
     });
   }
 
@@ -1908,21 +1908,21 @@ async function submitSetAdminUserId(userId) {
 }
 
 async function submitBatchAddImages(targetFlow, images) {
-  return callAppsScript('batchAddImages', { targetFlow, images }, '寫入失敗'); // { success, productIds }
+  return callAppsScript('batchAddImages', { targetFlow, images }, '寫入失敗');  { success, productIds }
 }
 
 async function submitOverride(field, productId, value) {
-  return callAppsScript('override', { field, productId, value }, '更新失敗'); // { success, productId, newTotal }
+  return callAppsScript('override', { field, productId, value }, '更新失敗');  { success, productId, newTotal }
 }
 
 async function fetchUnpaidOrders(customerName) {
   const json = await callAppsScript('listUnpaid', { customerName }, '查詢失敗');
-  return json.orders; // [{ orderId, name, color, size, style, quantity, total }]
+  return json.orders;  [{ orderId, name, color, size, style, quantity, total }]
 }
 
 async function fetchProcurementList() {
   const json = await callAppsScript('listProcurement', {}, '查詢失敗');
-  return json.groups; // [{ source, items: [{brand,name,color,size,style,needQty}] }]
+  return json.groups;  [{ source, items [{brand,name,color,size,style,needQty}] }]
 }
 
 async function markOrdersPaid(orderIds, paymentMethod) {
@@ -1934,59 +1934,59 @@ function costLine(result) {
   return `💰 商品成本：${result.baseCost}+${result.shippingCost}=${sum}`;
 }
 
-// 韓幣報價完成的圖文卡片(LINE Flex Message),含商品圖片+條列資訊+報價金額。
-// 之後如果效果好,可以比照這個結構,幫美國/韓免/買手等其他報價類型也做一份。
+ 韓幣報價完成的圖文卡片(LINE Flex Message),含商品圖片+條列資訊+報價金額。
+ 之後如果效果好,可以比照這個結構,幫美國韓免買手等其他報價類型也做一份。
 const QUOTE_FLEX_STYLE = {
-  koreaKrw: { title: '✅ 韓幣報價完成', accent: '#A9825F', bg: '#F5EBDD' },
-  usa: { title: '✅ 美金報價完成', accent: '#5B7A9D', bg: '#EAF0F6' },
-  dutyFreeOnline: { title: '✅ 線上免稅店報價完成', accent: '#8E6FA8', bg: '#F1EAF7' },
-  dutyFreePhysical: { title: '✅ 實體免稅店報價完成', accent: '#8E6FA8', bg: '#F1EAF7' },
-  peerTwd: { title: '✅ 同行報價完成（台幣）', accent: '#4E8C6A', bg: '#E9F5EE' },
-  peerKrw: { title: '✅ 同行報價完成（韓幣）', accent: '#4E8C6A', bg: '#E9F5EE' },
-  peerJpy: { title: '✅ 同行報價完成（日幣）', accent: '#4E8C6A', bg: '#E9F5EE' },
+  koreaKrw { title '✅ 韓幣報價完成', accent '#A9825F', bg '#F5EBDD' },
+  usa { title '✅ 美金報價完成', accent '#5B7A9D', bg '#EAF0F6' },
+  dutyFreeOnline { title '✅ 線上免稅店報價完成', accent '#8E6FA8', bg '#F1EAF7' },
+  dutyFreePhysical { title '✅ 實體免稅店報價完成', accent '#8E6FA8', bg '#F1EAF7' },
+  peerTwd { title '✅ 同行報價完成（台幣）', accent '#4E8C6A', bg '#E9F5EE' },
+  peerKrw { title '✅ 同行報價完成（韓幣）', accent '#4E8C6A', bg '#E9F5EE' },
+  peerJpy { title '✅ 同行報價完成（日幣）', accent '#4E8C6A', bg '#E9F5EE' },
 };
 
-// 通用報價完成圖文卡片,依flow換標題色系跟顯示欄位。缺的欄位自動略過,不會出現空白列。
-const PROCUREMENT_FALLBACK_IMAGE = 'https://placehold.co/100x100/EFE6D6/8A7E70.png?text=+'; // 商品沒有圖片時的預設灰底圖(LINE圖文卡片只吃JPEG/PNG,不支援SVG,一定要指定.png)
+ 通用報價完成圖文卡片,依flow換標題色系跟顯示欄位。缺的欄位自動略過,不會出現空白列。
+const PROCUREMENT_FALLBACK_IMAGE = 'httpsplacehold.co100x100EFE6D68A7E70.pngtext=+';  商品沒有圖片時的預設灰底圖(LINE圖文卡片只吃JPEGPNG,不支援SVG,一定要指定.png)
 
 function buildProcurementCarousel(groups) {
-  const bubbles = groups.slice(0, 12).map((g) => { // LINE輪播卡片上限12張
-    const itemRows = g.items.map((item) => {
+  const bubbles = groups.slice(0, 12).map((g) = {  LINE輪播卡片上限12張
+    const itemRows = g.items.map((item) = {
       const spec = [item.color, item.size, item.style].filter(Boolean).join('／');
       return {
-        type: 'box', layout: 'horizontal', spacing: 'sm', margin: 'md',
-        contents: [
-          { type: 'image', url: item.image || PROCUREMENT_FALLBACK_IMAGE, size: '48px', aspectRatio: '1:1', aspectMode: 'cover', flex: 0 },
+        type 'box', layout 'horizontal', spacing 'sm', margin 'md',
+        contents [
+          { type 'image', url item.image  PROCUREMENT_FALLBACK_IMAGE, size '48px', aspectRatio '11', aspectMode 'cover', flex 0 },
           {
-            type: 'box', layout: 'vertical', flex: 1, contents: [
-              { type: 'text', text: `${item.brand || ''} ${item.name || ''}`.trim(), size: 'xs', wrap: true, color: '#3A322A' },
-              { type: 'text', text: spec || ' ', size: 'xxs', color: '#8A7E70' },
+            type 'box', layout 'vertical', flex 1, contents [
+              { type 'text', text `${item.brand  ''} ${item.name  ''}`.trim(), size 'xs', wrap true, color '#3A322A' },
+              { type 'text', text spec  ' ', size 'xxs', color '#8A7E70' },
             ],
           },
-          { type: 'text', text: 'x' + item.needQty, size: 'sm', flex: 0, gravity: 'center', color: '#4A3B2A', weight: 'bold' },
+          { type 'text', text 'x' + item.needQty, size 'sm', flex 0, gravity 'center', color '#4A3B2A', weight 'bold' },
         ],
       };
     });
     return {
-      type: 'bubble',
-      header: {
-        type: 'box', layout: 'vertical', backgroundColor: '#4A3B2A', paddingAll: '14px',
-        contents: [{ type: 'text', text: g.source, size: 'md', color: '#FFFFFF', weight: 'bold' }],
+      type 'bubble',
+      header {
+        type 'box', layout 'vertical', backgroundColor '#4A3B2A', paddingAll '14px',
+        contents [{ type 'text', text g.source, size 'md', color '#FFFFFF', weight 'bold' }],
       },
-      body: { type: 'box', layout: 'vertical', paddingAll: '14px', contents: itemRows },
+      body { type 'box', layout 'vertical', paddingAll '14px', contents itemRows },
     };
   });
-  return { type: 'flex', altText: '採購清單', contents: { type: 'carousel', contents: bubbles } };
+  return { type 'flex', altText '採購清單', contents { type 'carousel', contents bubbles } };
 }
 
 function buildQuoteFlex(flow, data, result) {
-  const style = QUOTE_FLEX_STYLE[flow] || QUOTE_FLEX_STYLE.koreaKrw;
+  const style = QUOTE_FLEX_STYLE[flow]  QUOTE_FLEX_STYLE.koreaKrw;
 
   function row(label, value) {
     return {
-      type: 'box', layout: 'horizontal', contents: [
-        { type: 'text', text: label, size: 'sm', color: '#999999', flex: 2 },
-        { type: 'text', text: String(value), size: 'sm', color: '#333333', flex: 5, wrap: true },
+      type 'box', layout 'horizontal', contents [
+        { type 'text', text label, size 'sm', color '#999999', flex 2 },
+        { type 'text', text String(value), size 'sm', color '#333333', flex 5, wrap true },
       ],
     };
   }
@@ -2007,44 +2007,44 @@ function buildQuoteFlex(flow, data, result) {
   if (data.note) infoRows.push(row('備註', data.note));
 
   const bubble = {
-    type: 'bubble',
-    hero: data.imageUrl ? {
-      type: 'image', url: data.imageUrl, size: 'full', aspectRatio: '1:1', aspectMode: 'cover',
-    } : undefined,
-    header: {
-      type: 'box', layout: 'vertical', backgroundColor: style.accent, paddingAll: '16px',
-      contents: [{ type: 'text', text: style.title, color: '#ffffff', weight: 'bold', size: 'lg' }],
+    type 'bubble',
+    hero data.imageUrl  {
+      type 'image', url data.imageUrl, size 'full', aspectRatio '11', aspectMode 'cover',
+    }  undefined,
+    header {
+      type 'box', layout 'vertical', backgroundColor style.accent, paddingAll '16px',
+      contents [{ type 'text', text style.title, color '#ffffff', weight 'bold', size 'lg' }],
     },
-    body: {
-      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
-      contents: [...infoRows, { type: 'separator', margin: 'md' }],
+    body {
+      type 'box', layout 'vertical', spacing 'sm', paddingAll '16px',
+      contents [...infoRows, { type 'separator', margin 'md' }],
     },
-    footer: {
-      type: 'box', layout: 'vertical', backgroundColor: style.bg, paddingAll: '16px', spacing: 'sm',
-      contents: [
+    footer {
+      type 'box', layout 'vertical', backgroundColor style.bg, paddingAll '16px', spacing 'sm',
+      contents [
         {
-          type: 'box', layout: 'horizontal', contents: [
-            { type: 'text', text: '建議報價', size: 'md', color: '#555555' },
-            { type: 'text', text: String(result.total), size: 'xl', weight: 'bold', align: 'end', color: style.accent },
+          type 'box', layout 'horizontal', contents [
+            { type 'text', text '建議報價', size 'md', color '#555555' },
+            { type 'text', text String(result.total), size 'xl', weight 'bold', align 'end', color style.accent },
           ],
         },
         {
-          type: 'box', layout: 'horizontal', contents: [
-            { type: 'text', text: '商品總成本', size: 'xs', color: '#999999' },
-            { type: 'text', text: `${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`, size: 'xs', align: 'end', color: '#999999' },
+          type 'box', layout 'horizontal', contents [
+            { type 'text', text '商品總成本', size 'xs', color '#999999' },
+            { type 'text', text `${result.baseCost}+${result.shippingCost}=${result.baseCost + result.shippingCost}`, size 'xs', align 'end', color '#999999' },
           ],
         },
       ],
     },
   };
 
-  return { type: 'flex', altText: `${style.title}：${data.brand || data.peerName || ''} ${data.name || ''} $${result.total}`, contents: bubble };
+  return { type 'flex', altText `${style.title}：${data.brand  data.peerName  ''} ${data.name  ''} $${result.total}`, contents bubble };
 }
 
 function buildQuoteMessage(flow, data, result) {
   if (flow === 'order') {
     const lines = ['✅ 訂購表單新增完成', `客人：${data.customerName}`];
-    result.orders.forEach((o) => {
+    result.orders.forEach((o) = {
       lines.push('——————————');
       if (o.type === 'product') {
         lines.push(`商品編號：${o.identifier}`);
@@ -2062,16 +2062,16 @@ function buildQuoteMessage(flow, data, result) {
     });
     lines.push('——————————');
     if (data.paymentMethod) lines.push(`付款方式：${data.paymentMethod}`);
-    lines.push(`已收款：${data.received ? '是' : '否'}`);
+    lines.push(`已收款：${data.received  '是'  '否'}`);
     lines.push(`💰 總金額：${result.grandTotal}`);
-    return lines.join('\n');
+    return lines.join('n');
   }
 
-  if (flow === 'dutyFreeOnline' || flow === 'dutyFreePhysical') {
+  if (flow === 'dutyFreeOnline'  flow === 'dutyFreePhysical') {
     const isPhysical = flow === 'dutyFreePhysical';
-    const title = isPhysical ? '✅ 免稅店實體報價完成' : '✅ 免稅店線上報價完成';
-    const d1 = data.discount1 ? 1 - data.discount1 / 100 : 1;
-    const d2 = data.discount2 ? 1 - data.discount2 / 100 : 1;
+    const title = isPhysical  '✅ 免稅店實體報價完成'  '✅ 免稅店線上報價完成';
+    const d1 = data.discount1  1 - data.discount1  100  1;
+    const d2 = data.discount2  1 - data.discount2  100  1;
 
     const lines = [title, '編號：確認中（稍後補上）', `品牌：${data.brand}`, `名稱：${data.name}`];
     if (data.color) lines.push(`顏色：${data.color}`);
@@ -2079,8 +2079,8 @@ function buildQuoteMessage(flow, data, result) {
     if (data.style) lines.push(`款式：${data.style}`);
     if (data.note) lines.push(`備註：${data.note}`);
 
-    const filledStores = Object.keys(DUTY_FREE_STORES).filter((key) => data[key] !== null && data[key] !== undefined);
-    const storeLines = filledStores.map((key) => `${DUTY_FREE_STORES[key]}：${data[key]}`);
+    const filledStores = Object.keys(DUTY_FREE_STORES).filter((key) = data[key] !== null && data[key] !== undefined);
+    const storeLines = filledStores.map((key) = `${DUTY_FREE_STORES[key]}：${data[key]}`);
     lines.push(`各店售價：${storeLines.join('、')}`);
     lines.push(`最低售價：${data.lowestPrice}（${data.lowestStore}，匯率 1美金：${data.fxRate}）`);
     if (isPhysical) {
@@ -2096,11 +2096,11 @@ function buildQuoteMessage(flow, data, result) {
     lines.push(`利潤：${data.profit}`);
     lines.push('——————————');
 
-    // 每一間有填售價的店都各自算一次報價,由低到高排序,方便缺貨時知道改用哪家的價格
-    const sortedStores = [...filledStores].sort((a, b) => data[a] - data[b]);
-    sortedStores.forEach((key) => {
+     每一間有填售價的店都各自算一次報價,由低到高排序,方便缺貨時知道改用哪家的價格
+    const sortedStores = [...filledStores].sort((a, b) = data[a] - data[b]);
+    sortedStores.forEach((key) = {
       const storePrice = data[key];
-      const baseCost = Math.round(storePrice * d1 * d2 * data.fxRate);
+      const baseCost = Math.round(storePrice  d1  d2  data.fxRate);
       const totalCost = baseCost + result.shippingCost;
       const quote = ceilTo10(totalCost + data.profit);
       lines.push(DUTY_FREE_STORES[key]);
@@ -2110,7 +2110,7 @@ function buildQuoteMessage(flow, data, result) {
     });
     if (lines[lines.length - 1] === '') lines.pop();
 
-    return lines.join('\n');
+    return lines.join('n');
   }
 
   if (flow === 'usa') {
@@ -2137,7 +2137,7 @@ function buildQuoteMessage(flow, data, result) {
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
       lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
     }
-    return lines.join('\n');
+    return lines.join('n');
   }
 
   if (flow === 'koreaKrw') {
@@ -2164,7 +2164,7 @@ function buildQuoteMessage(flow, data, result) {
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
       lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
     }
-    return lines.join('\n');
+    return lines.join('n');
   }
 
   if (flow === 'peerTwd') {
@@ -2190,10 +2190,10 @@ function buildQuoteMessage(flow, data, result) {
     if (result.originalQuote !== null && result.originalQuote !== undefined) {
       lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
     }
-    return lines.join('\n');
+    return lines.join('n');
   }
 
-  const peerCurrencyLabel = flow === 'peerJpy' ? '日幣' : '韓幣';
+  const peerCurrencyLabel = flow === 'peerJpy'  '日幣'  '韓幣';
   const lines = [
     `✅ 同行報價完成（${peerCurrencyLabel}）`,
     '編號：確認中（稍後補上）',
@@ -2225,8 +2225,8 @@ function buildQuoteMessage(flow, data, result) {
   if (result.originalQuote !== null && result.originalQuote !== undefined) {
     lines.push(`💰 原價報價（參考）：${result.originalQuote}`);
   }
-  return lines.join('\n');
+  return lines.join('n');
 }
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`Server running on port ${port}`));
+const port = process.env.PORT  3000;
+app.listen(port, () = console.log(`Server running on port ${port}`));
