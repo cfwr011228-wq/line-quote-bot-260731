@@ -103,6 +103,58 @@ function quickReplyOf(items) {
   };
 }
 
+// 把選項陣列排成兩欄一列的色塊(區塊)按鈕,取代原本LINE系統原生的「快速回覆」圓角按鈕列。
+// 點下去的行為跟原本快速回覆一樣,都是送出跟文字選項一樣的訊息,所以後面解析文字的邏輯完全不用改。
+function buildBlockOptionsFlex(promptText, items) {
+  const normalized = items.map((it) => {
+    const label = typeof it === 'string' ? it : it.label;
+    const text = typeof it === 'string' ? it : it.text;
+    return { label: String(label), text: String(text) };
+  });
+
+  const rows = [];
+  for (let i = 0; i < normalized.length; i += 2) {
+    const pair = normalized.slice(i, i + 2);
+    rows.push({
+      type: 'box',
+      layout: 'horizontal',
+      spacing: 'sm',
+      margin: i === 0 ? 'md' : 'sm',
+      contents: pair.map((it) => ({
+        type: 'box',
+        layout: 'vertical',
+        flex: 1,
+        backgroundColor: '#A9825F',
+        cornerRadius: '10px',
+        paddingAll: '10px',
+        justifyContent: 'center',
+        alignItems: 'center',
+        action: { type: 'message', label: it.label.slice(0, 20), text: it.text },
+        contents: [
+          { type: 'text', text: it.label, color: '#FFFFFF', size: 'sm', weight: 'bold', align: 'center', wrap: true },
+        ],
+      })),
+    });
+  }
+
+  return {
+    type: 'flex',
+    altText: promptText.slice(0, 400),
+    contents: {
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        paddingAll: '16px',
+        contents: [
+          { type: 'text', text: promptText, size: 'sm', weight: 'bold', color: '#3A322A', wrap: true },
+          ...rows,
+        ],
+      },
+    },
+  };
+}
+
 // 下載 LINE 圖片,轉成 base64 字串
 async function getLineImageBase64(messageId) {
   const contentStream = await client.getMessageContent(messageId);
@@ -796,11 +848,10 @@ function stepPrompt(step, session) {
 }
 
 function buildStepMessage(text, step) {
-  const msg = { type: 'text', text };
-  if (step && step.quickReplyItems) {
-    msg.quickReply = quickReplyOf(step.quickReplyItems);
+  if (step && step.quickReplyItems && step.quickReplyItems.length > 0) {
+    return buildBlockOptionsFlex(text, step.quickReplyItems);
   }
-  return msg;
+  return { type: 'text', text };
 }
 
 // 自動跳過 condition 為 false 的欄位(帶入預設值),回傳下一個要顯示的步驟(或 null 代表流程結束)
