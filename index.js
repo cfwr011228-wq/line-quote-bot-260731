@@ -103,13 +103,23 @@ function quickReplyOf(items) {
   };
 }
 
+// emoji(含變體選擇符、ZWJ組合表情)整段拿掉,只留文字本身
+const EMOJI_REGEX = /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}️‍]/gu;
+function stripEmoji(str) {
+  return str.replace(EMOJI_REGEX, '').replace(/\s+/g, ' ').trim();
+}
+
+// 色塊按鈕輪流上色用的色盤,跟系統其他地方(報價圖文卡片)用的同一套大地色系,顏色不同但風格統一,
+// 不會每個按鈕都同一種咖啡色。依「在整份選單裡是第幾個按鈕」輪流套色,同一列的兩顆顏色也會不同。
+const BLOCK_COLOR_PALETTE = ['#A9825F', '#5B7A9D', '#4E8C6A', '#8E6FA8', '#C97B5D', '#6B8A8A'];
+
 // 把選項陣列排成兩欄一列的色塊(區塊)按鈕,取代原本LINE系統原生的「快速回覆」圓角按鈕列。
 // 點下去的行為跟原本快速回覆一樣,都是送出跟文字選項一樣的訊息,所以後面解析文字的邏輯完全不用改。
 function buildBlockOptionsFlex(promptText, items) {
   const normalized = items.map((it) => {
     const label = typeof it === 'string' ? it : it.label;
     const text = typeof it === 'string' ? it : it.text;
-    return { label: String(label), text: String(text) };
+    return { label: stripEmoji(String(label)), text: String(text) };
   });
 
   const rows = [];
@@ -120,16 +130,16 @@ function buildBlockOptionsFlex(promptText, items) {
       layout: 'horizontal',
       spacing: 'sm',
       margin: i === 0 ? 'md' : 'sm',
-      contents: pair.map((it) => ({
+      contents: pair.map((it, j) => ({
         type: 'box',
         layout: 'vertical',
         flex: 1,
-        backgroundColor: '#A9825F',
+        backgroundColor: BLOCK_COLOR_PALETTE[(i + j) % BLOCK_COLOR_PALETTE.length],
         cornerRadius: '10px',
         paddingAll: '10px',
         justifyContent: 'center',
         alignItems: 'center',
-        action: { type: 'message', label: it.label.slice(0, 20), text: it.text },
+        action: { type: 'message', label: it.label.slice(0, 20) || it.text.slice(0, 20), text: it.text },
         contents: [
           { type: 'text', text: it.label, color: '#FFFFFF', size: 'sm', weight: 'bold', align: 'center', wrap: true },
         ],
